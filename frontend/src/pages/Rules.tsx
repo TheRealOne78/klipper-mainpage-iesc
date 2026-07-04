@@ -124,7 +124,9 @@ export const Rules: React.FC<RulesProps> = ({
     <div className="page-content">
       <div className="markdown-container">
         {loading ? (
-          <p>{lang === "ro" ? "Se încarcă regulamentul..." : "Loading rules..."}</p>
+          <p>
+            {lang === "ro" ? "Se încarcă regulamentul..." : "Loading rules..."}
+          </p>
         ) : error ? (
           <div className="content-error-state">{error}</div>
         ) : (

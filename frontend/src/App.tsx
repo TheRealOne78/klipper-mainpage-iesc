@@ -13,9 +13,9 @@ import {
   ChevronDown,
   ChevronUp,
   Globe,
-          Upload,
-          AlertTriangle,
-          X,
+  Upload,
+  AlertTriangle,
+  X,
   Compass,
   Eye,
   LayoutDashboard,
@@ -84,7 +84,10 @@ const App: React.FC = () => {
     preheat,
     runMacro,
     jog,
+    moveTo,
     home,
+    disableMotors,
+    setTargetTemp,
     setSpeedFactor,
     startPrint,
     pausePrint,
@@ -95,7 +98,22 @@ const App: React.FC = () => {
   } = usePrinterState();
 
   const [page, setPage] = useState<string>("rules");
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const getPreferredTheme = (): "light" | "dark" => {
+    if (typeof window === "undefined") return "dark";
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+    return window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark";
+  };
+
+  const applyTheme = (nextTheme: "light" | "dark") => {
+    setTheme(nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+    document.documentElement.style.colorScheme = nextTheme;
+  };
+
+  const [theme, setTheme] = useState<"light" | "dark">(getPreferredTheme);
   const [lang, setLang] = useState<"ro" | "en">("ro");
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [password, setPassword] = useState("");
@@ -130,6 +148,22 @@ const App: React.FC = () => {
   const [troubleCollapsed, setTroubleCollapsed] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const [scrollTarget, setScrollTarget] = useState<string>("");
+  const langSelectorRef = useRef<HTMLDivElement>(null);
+
+  // Close the language dropdown when clicking away
+  useEffect(() => {
+    if (!langDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        langSelectorRef.current &&
+        !langSelectorRef.current.contains(event.target as Node)
+      ) {
+        setLangDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [langDropdownOpen]);
 
   // Status and notification states
   const [notification, setNotification] = useState<{
@@ -154,9 +188,11 @@ const App: React.FC = () => {
   // Initialize theme & language
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
-    const initialTheme = savedTheme || "dark";
-    setTheme(initialTheme);
-    document.documentElement.setAttribute("data-theme", initialTheme);
+    const systemTheme = window.matchMedia("(prefers-color-scheme: light)")
+      .matches
+      ? "light"
+      : "dark";
+    applyTheme(savedTheme || systemTheme);
 
     const savedLang = localStorage.getItem("lang") as "ro" | "en" | null;
     if (savedLang === "ro" || savedLang === "en") {
@@ -166,8 +202,7 @@ const App: React.FC = () => {
 
   const toggleTheme = () => {
     const newTheme = theme === "dark" ? "light" : "dark";
-    setTheme(newTheme);
-    document.documentElement.setAttribute("data-theme", newTheme);
+    applyTheme(newTheme);
     localStorage.setItem("theme", newTheme);
   };
 
@@ -205,28 +240,26 @@ const App: React.FC = () => {
   };
 
   const handleEmergencyStopClick = async () => {
-    if (window.confirm(t.emergencyStopConfirm)) {
-      try {
-        const res = await emergencyStop();
-        if (res && res.status === "ok") {
-          setNotification({
-            type: "success",
-            message: t.emergencyStopSuccess,
-          });
-        } else {
-          setNotification({
-            type: "error",
-            message: t.emergencyStopFailed,
-          });
-        }
-      } catch {
+    try {
+      const res = await emergencyStop();
+      if (res && res.status === "ok") {
+        setNotification({
+          type: "success",
+          message: t.emergencyStopSuccess,
+        });
+      } else {
         setNotification({
           type: "error",
           message: t.emergencyStopFailed,
         });
       }
-      setTimeout(() => setNotification(null), 5000);
+    } catch {
+      setNotification({
+        type: "error",
+        message: t.emergencyStopFailed,
+      });
     }
+    setTimeout(() => setNotification(null), 5000);
   };
 
   const handleNavUploadClick = () => {
@@ -341,6 +374,7 @@ const App: React.FC = () => {
           <div
             className="lang-selector-container"
             style={{ position: "relative" }}
+            ref={langSelectorRef}
           >
             <button
               className="btn-lang-toggle"
@@ -430,6 +464,26 @@ const App: React.FC = () => {
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
+
+          {/* Mainsail Redirect Button */}
+          {portalConfig?.mainsail_url &&
+            portalConfig.mainsail_url.trim() !== "" && (
+              <a
+                className="btn-theme-toggle"
+                href={portalConfig.mainsail_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Mainsail"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textDecoration: "none",
+                }}
+              >
+                <Compass size={18} />
+              </a>
+            )}
         </div>
       </header>
 
@@ -504,11 +558,18 @@ const App: React.FC = () => {
             <div className="sidebar-header-row">
               <button
                 className={`sidebar-header-btn ${page === "troubleshooting" && scrollTarget.startsWith("proceduri") ? "active" : ""}`}
-                onClick={() => handleSidebarLinkClick("troubleshooting", "proceduri-standard")}
+                onClick={() =>
+                  handleSidebarLinkClick(
+                    "troubleshooting",
+                    "proceduri-standard",
+                  )
+                }
               >
                 <span className="sidebar-icon-label">
                   <BookOpen size={16} />
-                  <span className="sidebar-label-text">{lang === "ro" ? "Ghid" : "Guide"}</span>
+                  <span className="sidebar-label-text">
+                    {lang === "ro" ? "Ghid" : "Guide"}
+                  </span>
                 </span>
               </button>
               <button
@@ -516,7 +577,11 @@ const App: React.FC = () => {
                 onClick={() => setGuideCollapsed(!guideCollapsed)}
                 title={guideCollapsed ? "Expand" : "Collapse"}
               >
-                {guideCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                {guideCollapsed ? (
+                  <ChevronDown size={14} />
+                ) : (
+                  <ChevronUp size={14} />
+                )}
               </button>
             </div>
             {!guideCollapsed && (
@@ -524,7 +589,10 @@ const App: React.FC = () => {
                 <button
                   className={`sidebar-link ${page === "troubleshooting" && scrollTarget === "proceduri-standard" ? "active" : ""}`}
                   onClick={() =>
-                    handleSidebarLinkClick("troubleshooting", "proceduri-standard")
+                    handleSidebarLinkClick(
+                      "troubleshooting",
+                      "proceduri-standard",
+                    )
                   }
                 >
                   {lang === "ro" ? "Proceduri Standard" : "Standard Procedures"}
@@ -560,11 +628,15 @@ const App: React.FC = () => {
             <div className="sidebar-header-row">
               <button
                 className={`sidebar-header-btn ${page === "troubleshooting" && scrollTarget === "ce-fac-in-caz-de" ? "active" : ""}`}
-                onClick={() => handleSidebarLinkClick("troubleshooting", "ce-fac-in-caz-de")}
+                onClick={() =>
+                  handleSidebarLinkClick("troubleshooting", "ce-fac-in-caz-de")
+                }
               >
                 <span className="sidebar-icon-label">
                   <Wrench size={16} />
-                  <span className="sidebar-label-text">{lang === "ro" ? "Depanare" : "Troubleshooting"}</span>
+                  <span className="sidebar-label-text">
+                    {lang === "ro" ? "Depanare" : "Troubleshooting"}
+                  </span>
                 </span>
               </button>
               <button
@@ -572,7 +644,11 @@ const App: React.FC = () => {
                 onClick={() => setTroubleCollapsed(!troubleCollapsed)}
                 title={troubleCollapsed ? "Expand" : "Collapse"}
               >
-                {troubleCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                {troubleCollapsed ? (
+                  <ChevronDown size={14} />
+                ) : (
+                  <ChevronUp size={14} />
+                )}
               </button>
             </div>
             {!troubleCollapsed && (
@@ -580,7 +656,10 @@ const App: React.FC = () => {
                 <button
                   className={`sidebar-link ${page === "troubleshooting" && scrollTarget === "ce-fac-in-caz-de" ? "active" : ""}`}
                   onClick={() =>
-                    handleSidebarLinkClick("troubleshooting", "ce-fac-in-caz-de")
+                    handleSidebarLinkClick(
+                      "troubleshooting",
+                      "ce-fac-in-caz-de",
+                    )
                   }
                 >
                   {lang === "ro" ? "Ce fac în caz de..." : "What if..."}
@@ -591,7 +670,9 @@ const App: React.FC = () => {
         </aside>
 
         {/* Viewport content */}
-        <div className="main-viewport-content">
+        <div
+          className={`main-viewport-content ${page === "dashboard" ? "dashboard-viewport" : ""}`}
+        >
           {/* Notifications */}
           {notification && (
             <div className={`notification-banner ${notification.type}`}>
@@ -637,7 +718,11 @@ const App: React.FC = () => {
           {/* Active page */}
           <div id={pageAnchors[page] || page} className="active-view-container">
             {page === "rules" && (
-              <Rules config={portalConfig} lang={lang} scrollTarget={scrollTarget} />
+              <Rules
+                config={portalConfig}
+                lang={lang}
+                scrollTarget={scrollTarget}
+              />
             )}
             {page === "troubleshooting" && (
               <Troubleshooting lang={lang} scrollTarget={scrollTarget} />
@@ -651,32 +736,36 @@ const App: React.FC = () => {
                 config={portalConfig}
               />
             )}
-          {page === "heightmap" && (
-            <Heightmap
-              lang={lang}
-              printerState={printerState}
-              sendGcode={async (gcode) => {
-                try {
-                  await runMacro(gcode);
-                  return true;
-                } catch {
-                  return false;
-                }
-              }}
-              config={portalConfig}
-            />
-          )}
-          {page === "dashboard" && (
+            {page === "heightmap" && (
+              <Heightmap
+                lang={lang}
+                printerState={printerState}
+                sendGcode={async (gcode) => {
+                  try {
+                    await runMacro(gcode);
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                }}
+                config={portalConfig}
+              />
+            )}
+            {page === "dashboard" && (
               <Dashboard
                 state={printerState}
                 config={portalConfig}
                 role={role}
                 lang={lang}
+                theme={theme}
                 uploadProgress={uploadProgress}
                 onPreheat={preheat}
                 onRunMacro={runMacro}
                 onJog={jog}
+                onMoveTo={moveTo}
                 onHome={home}
+                onDisableMotors={disableMotors}
+                onSetTargetTemp={setTargetTemp}
                 onSetSpeedFactor={setSpeedFactor}
                 onStartPrint={startPrint}
                 onPause={pausePrint}
@@ -695,56 +784,65 @@ const App: React.FC = () => {
             )}
           </div>
 
+          {/* Footer */}
+          <footer className="app-footer">
+            <div>
+              © {new Date().getFullYear()} {t.university} - {t.faculty}.{" "}
+              {t.footerText}{" "}
+              {lang === "ro" ? "Licențiat sub" : "Licensed under"}{" "}
+              <a
+                href="https://www.gnu.org/licenses/agpl-3.0.html"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                GNU AGPL-3.0
+              </a>
+              .
+            </div>
+
+            {/* Social / Link Icons */}
+            <div className="footer-links">
+              <a
+                href="https://www.unitbv.ro"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="UNITBV"
+              >
+                <span className="ut-symbol">U</span>
+              </a>
+              <a
+                href="https://iesc.unitbv.ro"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="IESC"
+              >
+                <span className="ut-symbol">E</span>
+              </a>
+              <a
+                href="https://github.com/TheRealOne78/klipper-mainpage-iesc"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="GitHub Repository"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+                  <path d="M9 18c-4.51 2-5-2-7-2" />
+                </svg>
+              </a>
+            </div>
+          </footer>
         </div>
       </div>
-
-      {/* Footer */}
-      <footer className="app-footer">
-        <div>
-          © {new Date().getFullYear()} {t.university} - {t.faculty}.{" "}
-          {t.footerText}{" "}
-          {lang === "ro" ? "Licențiat sub" : "Licensed under"}{" "}
-          <a
-            href="https://www.gnu.org/licenses/agpl-3.0.html"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GNU AGPL-3.0
-          </a>
-          .
-        </div>
-
-        {/* Social / Link Icons */}
-        <div className="footer-links">
-          <a href="https://www.unitbv.ro" target="_blank" rel="noopener noreferrer" title="UNITBV">
-            <span className="ut-symbol">U</span>
-          </a>
-          <a href="https://iesc.unitbv.ro" target="_blank" rel="noopener noreferrer" title="IESC">
-            <span className="ut-symbol">E</span>
-          </a>
-          <a
-            href="https://github.com/TheRealOne78/klipper-mainpage-iesc"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="GitHub Repository"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
-              <path d="M9 18c-4.51 2-5-2-7-2" />
-            </svg>
-          </a>
-        </div>
-      </footer>
 
       {/* Safety & Warning Modal */}
       {safetyModalOpen && (
@@ -866,9 +964,7 @@ const App: React.FC = () => {
                   setUploadedFileName(null);
                 }}
               >
-                {lang === "ro"
-                  ? "Vezi instrucțiunile"
-                  : "View instructions"}
+                {lang === "ro" ? "Vezi instrucțiunile" : "View instructions"}
               </button>
             </div>
 

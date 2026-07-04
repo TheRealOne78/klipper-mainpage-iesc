@@ -8,7 +8,7 @@ admin_password_hash = "$2b$12$Z0w6K7U0t22iFk.bexXQfOD7X0.m9bQJ.YmX5y58D602fQ/G20
 guest_password_hash = ""
 
 [moonraker]
-url = "http://127.0.0.1:7125"
+url = "http://192.168.1.11:7125/"
 api_key = ""
 
 [mainsail]
@@ -18,7 +18,7 @@ url = ""
 max_speed_factor = 500.0
 max_upload_mb = 250
 allow_movement_while_printing = false
-allow_home_for_guests = false
+allow_home_for_guests = true
 max_hotend_temp = 260.0
 max_bed_temp = 110.0
 max_jog_step = 10.0

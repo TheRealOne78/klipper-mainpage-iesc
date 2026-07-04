@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Crosshair,
   Eye,
@@ -30,7 +36,9 @@ type ViewerInstance = {
   toggleTravels?: (visible: boolean) => void;
   setCursorVisiblity?: (visible: boolean) => void;
   setZClipPlane?: (top: number, bottom: number) => void;
-  updateToolPosition?: (position: Array<{ axes: "X" | "Y" | "Z"; position: number }>) => void;
+  updateToolPosition?: (
+    position: Array<{ axes: "X" | "Y" | "Z"; position: number }>,
+  ) => void;
   updateRenderQuality?: (quality: number) => void;
   setBackgroundColor?: (color: string) => void;
   setProgressColor?: (color: string) => void;
@@ -107,12 +115,15 @@ const cssVar = (name: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
   fallback;
 
-const normalizedName = (name?: string | null) => name?.replace(/^\/+/, "") ?? "";
+const normalizedName = (name?: string | null) =>
+  name?.replace(/^\/+/, "") ?? "";
 
 const sameFile = (left?: string | null, right?: string | null) =>
   normalizedName(left) === normalizedName(right);
 
-const isViewerReady = (viewer: ViewerInstance | null): viewer is ViewerInstance =>
+const isViewerReady = (
+  viewer: ViewerInstance | null,
+): viewer is ViewerInstance =>
   Boolean(viewer?.engine && viewer?.scene && viewer.scene.activeCamera);
 
 // The renderer only draws toolpath segments whose file position is at or
@@ -206,21 +217,33 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   const viewerReadyRef = useRef(false);
   const activeLoadId = useRef(0);
   const langRef = useRef(lang);
-  const configureViewerRef = useRef<((viewer: ViewerInstance) => void) | null>(null);
-  const loadContentRef = useRef<((content: string, name: string) => Promise<void>) | null>(null);
+  const configureViewerRef = useRef<((viewer: ViewerInstance) => void) | null>(
+    null,
+  );
+  const loadContentRef = useRef<
+    ((content: string, name: string) => Promise<void>) | null
+  >(null);
   const loadCurrentFileRef = useRef<(() => Promise<void>) | null>(null);
-  const pendingLocalFileRef = useRef<{ content: string; name: string } | null>(null);
-  const appliedQualityRef = useRef<{ quality: number; hd: boolean } | null>(null);
+  const pendingLocalFileRef = useRef<{ content: string; name: string } | null>(
+    null,
+  );
+  const appliedQualityRef = useRef<{ quality: number; hd: boolean } | null>(
+    null,
+  );
   const [viewerReady, setViewerReady] = useState(false);
   const [loadedFileName, setLoadedFileName] = useState<string | null>(null);
-  const [localFileBounds, setLocalFileBounds] = useState<BuildBounds | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [localFileBounds, setLocalFileBounds] = useState<BuildBounds | null>(
+    null,
+  );
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle",
+  );
   const [message, setMessage] = useState("");
   const [tracking, setTracking] = useState(true);
   const [showTravels, setShowTravels] = useState(false);
   const [showToolhead, setShowToolhead] = useState(true);
-  const [quality, setQuality] = useState(3);
-  const [hdRendering, setHdRendering] = useState(false);
+  const [quality, setQuality] = useState(5);
+  const [hdRendering, setHdRendering] = useState(true);
   const [scrubFileSize, setScrubFileSize] = useState(0);
   const [scrubPosition, setScrubPosition] = useState(0);
   const [scrubPlaying, setScrubPlaying] = useState(false);
@@ -237,8 +260,10 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   const axisMaxKey = printerState?.toolhead?.axis_maximum?.join() ?? null;
 
   const bounds: BuildBounds = useMemo(() => {
-    const min = axisMinKey !== null ? axisMinKey.split(",").map(Number) : fallbackMin;
-    const max = axisMaxKey !== null ? axisMaxKey.split(",").map(Number) : fallbackMax;
+    const min =
+      axisMinKey !== null ? axisMinKey.split(",").map(Number) : fallbackMin;
+    const max =
+      axisMaxKey !== null ? axisMaxKey.split(",").map(Number) : fallbackMax;
 
     if ((axisMinKey === null || axisMaxKey === null) && localFileBounds) {
       return localFileBounds;
@@ -296,7 +321,16 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         tools[0].diameter = nozzleDiameter;
       }
     },
-    [bounds, hdRendering, kinematics, nozzleDiameter, quality, showToolhead, showTravels, theme],
+    [
+      bounds,
+      hdRendering,
+      kinematics,
+      nozzleDiameter,
+      quality,
+      showToolhead,
+      showTravels,
+      theme,
+    ],
   );
 
   const loadContent = useCallback(
@@ -368,7 +402,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     }
 
     setStatus("loading");
-    setMessage(lang === "ro" ? "Se descarcă G-code-ul..." : "Downloading G-code...");
+    setMessage(
+      lang === "ro" ? "Se descarcă G-code-ul..." : "Downloading G-code...",
+    );
     const encodedPath = normalizedName(fileName)
       .split("/")
       .map(encodeURIComponent)
@@ -415,7 +451,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         viewer.setZClipPlane?.(1000000, -1000000);
         viewer.gcodeProcessor?.setLiveTracking?.(false);
         if (import.meta.env.DEV) {
-          (window as unknown as { __gcodeViewer?: ViewerInstance }).__gcodeViewer = viewer;
+          (
+            window as unknown as { __gcodeViewer?: ViewerInstance }
+          ).__gcodeViewer = viewer;
         }
       });
     }
@@ -436,7 +474,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         await sharedViewerInit;
         if (disposed) return;
         if (viewer.gcodeProcessor) {
-          viewer.gcodeProcessor.loadingProgressCallback = (progress: number) => {
+          viewer.gcodeProcessor.loadingProgressCallback = (
+            progress: number,
+          ) => {
             if (disposed) return;
             const percent = Math.ceil(progress * 100);
             if (percent <= 99) {
@@ -454,7 +494,10 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         const pendingLocalFile = pendingLocalFileRef.current;
         pendingLocalFileRef.current = null;
         if (pendingLocalFile) {
-          await loadContentRef.current?.(pendingLocalFile.content, pendingLocalFile.name);
+          await loadContentRef.current?.(
+            pendingLocalFile.content,
+            pendingLocalFile.name,
+          );
         } else if (lastLoadedFile && (viewer.fileSize ?? 0) > 0) {
           // The shared viewer still holds the model from the previous
           // mount; restore the UI state without reprocessing the file.
@@ -550,7 +593,12 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   // Live tracking: follow the printer's real position through the file.
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewerReady || !isViewerReady(viewer) || status !== "ready" || !liveTracking) {
+    if (
+      !viewerReady ||
+      !isViewerReady(viewer) ||
+      status !== "ready" ||
+      !liveTracking
+    ) {
       return;
     }
 
@@ -566,7 +614,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
 
     const filePosition = printerState?.virtual_sdcard?.file_position ?? 0;
     if (filePosition > trackingOffset) {
-      viewer.gcodeProcessor?.updateFilePosition?.(filePosition - trackingOffset);
+      viewer.gcodeProcessor?.updateFilePosition?.(
+        filePosition - trackingOffset,
+      );
     } else {
       viewer.gcodeProcessor?.updateFilePosition?.(viewer.fileSize ?? 0);
     }
@@ -625,7 +675,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     }
   }, [scrubFileSize, scrubPlaying, scrubPosition]);
 
-  const handleLocalFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocalFile = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -636,7 +688,11 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     try {
       if (sameFile(loadedFileName, fileName)) {
         await loadCurrentFile();
-      } else if (viewerReady && isViewerReady(viewerRef.current) && viewerRef.current.reload) {
+      } else if (
+        viewerReady &&
+        isViewerReady(viewerRef.current) &&
+        viewerRef.current.reload
+      ) {
         setStatus("loading");
         await viewerRef.current.reload();
         showWholeFile(viewerRef.current);
@@ -790,7 +846,15 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
               className="btn-control"
               onClick={() =>
                 setScrubSpeed((speed) =>
-                  speed >= 20 ? 1 : speed >= 10 ? 20 : speed >= 5 ? 10 : speed >= 2 ? 5 : 2,
+                  speed >= 20
+                    ? 1
+                    : speed >= 10
+                      ? 20
+                      : speed >= 5
+                        ? 10
+                        : speed >= 2
+                          ? 5
+                          : 2,
                 )
               }
               title={lang === "ro" ? "Viteză de redare" : "Playback speed"}

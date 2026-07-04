@@ -37,7 +37,7 @@ export const translations = {
     btnResume: "Reluare",
     btnCancel: "Anulează",
     btnStartPrint: "Pornește Printare",
-    tempPreheat: "Temperaturi și Preîncălzire",
+    tempPreheat: "Temperaturi",
     preheatPresets: "Preîncălzire Presets",
     cooldown: "Răcire",
     uploadTitle: "Încărcare G-code",
@@ -63,14 +63,94 @@ export const translations = {
 
     // Custom elements
     emergencyStop: "OPRIRE DE URGENȚĂ",
-    emergencyStopConfirm:
-      "Sigur vrei să trimiți comanda de OPRIRE DE URGENȚĂ?",
+    emergencyStopConfirm: "Sigur vrei să trimiți comanda de OPRIRE DE URGENȚĂ?",
     emergencyStopSuccess: "Comanda de oprire de urgență a fost trimisă!",
     emergencyStopFailed: "Trimiterea comenzii de oprire de urgență a eșuat.",
     sidebarToggle: "Meniu",
     languageSelect: "Selectare limbă",
     bigRedWarning:
       "ATENȚIE: Citește regulile înainte de a printa și nu fi iresponsabil! Orice defecțiune cauzată de utilizarea necorespunzătoare va fi suportată de utilizator.",
+
+    // Status / heater states
+    statusBusy: "ocupat",
+    heaterOff: "oprit",
+    heaterHolding: "menține",
+    heaterHeating: "încălzește",
+    heaterCooling: "răcește",
+
+    // Generic UI
+    expand: "Extinde",
+    collapse: "Restrânge",
+    slicerRemaining: "Rămas (slicer)",
+
+    // Toolhead panel
+    toolhead: "Cap de imprimare",
+    actions: "Acțiuni",
+    unlockMotors: "Deblochează motoarele",
+    homeAll: "Acasă tot",
+    all: "TOT",
+    position: "Poziție",
+    positionAbsolute: "absolută",
+    positionRelative: "relativă",
+    zOffset: "Compensare Z",
+    toolheadSettings: "Setări cap de imprimare",
+    positionOutput: "Afișare poziție",
+    coordinateFields: "Câmpuri coordonate",
+    controlButtons: "Butoane de control",
+    zOffsetSetting: "Compensare Z",
+    speedFactorSetting: "Multiplicator viteză",
+
+    // Temperatures panel
+    temperatureSettings: "Setări temperatură",
+    showChart: "Arată graficul",
+    autoscaleChart: "Scalare automată",
+    hideTargets: "Ascunde țintele",
+    preset: "Presetare",
+    tableName: "Nume",
+    tableState: "Stare",
+    tableCurrent: "Curent",
+    tableTarget: "Țintă",
+    extruder: "Extruder",
+    heaterBed: "Pat încălzit",
+    chartExtruderTarget: "Extruder (țintă)",
+    chartBedTarget: "Pat (țintă)",
+
+    // Console
+    console: "Consolă",
+    noConsoleMessages: "Niciun mesaj în consolă",
+
+    // Macros
+    macroParameters: "Parametri macro",
+    send: "Trimite",
+
+    // Heightmap
+    hmMeshProfile: "Profil mesh",
+    hmMax: "Maxim",
+    hmMin: "Minim",
+    hmRange: "Interval",
+    hmCalibrate: "Calibrează Pat",
+    hmCalibrating: "Calibrare...",
+    hmClear: "Șterge mesh",
+    hmProbed: "Sondat",
+    hmMesh: "Plasă",
+    hmFlat: "Plat",
+    hmWireframe: "Cadru",
+    hmScaleGradient: "Scalează gradientul",
+    hmScaleZMax: "Scală Z max",
+    hmColorScheme: "Schemă de culori",
+    hmOrientation: "Orientare",
+    hmOrientRightFront: "Dreapta-față",
+    hmOrientLeftFront: "Stânga-față",
+    hmOrientFront: "Față",
+    hmOrientTop: "De sus",
+    hmSchemeGrayscale: "Tonuri de gri",
+    hmNoMesh: "Nu există mesh activ",
+    hmNoMeshDesc:
+      "Rulează calibrarea patului sau activează un profil bed mesh în Klipper.",
+
+    // Speed factor
+    speedLabel: "Viteză:",
+    speedReset: "Resetare (100%)",
   },
   en: {
     appTitle: "Ender 3 Pro – Annex NII3",
@@ -110,7 +190,7 @@ export const translations = {
     btnResume: "Resume",
     btnCancel: "Cancel",
     btnStartPrint: "Start Printing",
-    tempPreheat: "Temperatures & Preheat",
+    tempPreheat: "Temperatures",
     preheatPresets: "Preheat Presets",
     cooldown: "Cooldown",
     uploadTitle: "Upload G-code",
@@ -143,5 +223,86 @@ export const translations = {
     languageSelect: "Select language",
     bigRedWarning:
       "ATTENTION: Read the rules before printing and do not be irresponsible! Any damage caused by misuse will be borne by the user.",
+
+    // Status / heater states
+    statusBusy: "busy",
+    heaterOff: "off",
+    heaterHolding: "holding",
+    heaterHeating: "heating",
+    heaterCooling: "cooling",
+
+    // Generic UI
+    expand: "Expand",
+    collapse: "Collapse",
+    slicerRemaining: "Slicer remaining",
+
+    // Toolhead panel
+    toolhead: "Toolhead",
+    actions: "Actions",
+    unlockMotors: "Unlock Motors",
+    homeAll: "Home All",
+    all: "ALL",
+    position: "Position",
+    positionAbsolute: "absolute",
+    positionRelative: "relative",
+    zOffset: "Z-Offset",
+    toolheadSettings: "Toolhead settings",
+    positionOutput: "Position output",
+    coordinateFields: "Coordinate fields",
+    controlButtons: "Control buttons",
+    zOffsetSetting: "Z offset",
+    speedFactorSetting: "Speed factor",
+
+    // Temperatures panel
+    temperatureSettings: "Temperature settings",
+    showChart: "Show Chart",
+    autoscaleChart: "Autoscale Chart",
+    hideTargets: "Hide Targets",
+    preset: "Preset",
+    tableName: "Name",
+    tableState: "State",
+    tableCurrent: "Current",
+    tableTarget: "Target",
+    extruder: "Extruder",
+    heaterBed: "Heater Bed",
+    chartExtruderTarget: "Extruder Target",
+    chartBedTarget: "Bed Target",
+
+    // Console
+    console: "Console",
+    noConsoleMessages: "No console messages",
+
+    // Macros
+    macroParameters: "Macro parameters",
+    send: "Send",
+
+    // Heightmap
+    hmMeshProfile: "Mesh profile",
+    hmMax: "Max",
+    hmMin: "Min",
+    hmRange: "Range",
+    hmCalibrate: "Calibrate Bed",
+    hmCalibrating: "Calibrating...",
+    hmClear: "Clear mesh",
+    hmProbed: "Probed",
+    hmMesh: "Mesh",
+    hmFlat: "Flat",
+    hmWireframe: "Wireframe",
+    hmScaleGradient: "Scale Gradient",
+    hmScaleZMax: "Scale Z Max",
+    hmColorScheme: "Color Scheme",
+    hmOrientation: "Orientation",
+    hmOrientRightFront: "Right Front",
+    hmOrientLeftFront: "Left Front",
+    hmOrientFront: "Front",
+    hmOrientTop: "Top",
+    hmSchemeGrayscale: "Grayscale",
+    hmNoMesh: "No active mesh",
+    hmNoMeshDesc:
+      "Run bed calibration or activate a Klipper bed mesh profile.",
+
+    // Speed factor
+    speedLabel: "Speed:",
+    speedReset: "Reset (100%)",
   },
 };

@@ -25,6 +25,9 @@ pub struct ConfigFileState {
 pub struct ToolheadState {
     pub axis_minimum: Option<Vec<f64>>,
     pub axis_maximum: Option<Vec<f64>>,
+    pub position: Option<Vec<f64>>,
+    pub homed_axes: Option<String>,
+    pub speed_factor: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -40,12 +43,35 @@ pub struct MotionReportState {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GcodeMoveState {
     pub homing_origin: Option<Vec<f64>>,
+    pub gcode_position: Option<Vec<f64>>,
+    pub speed_factor: Option<f64>,
+    pub absolute_coordinates: Option<bool>,
+    pub absolute_extrude: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ExcludeObjectState {
     pub objects: Option<serde_json::Value>,
     pub excluded_objects: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct WebhooksState {
+    pub state: Option<String>,
+    pub state_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct IdleTimeoutState {
+    pub state: Option<String>,
+    pub printing_time: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ConsoleEvent {
+    pub time: f64,
+    pub message: String,
+    pub event_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -71,6 +97,9 @@ pub struct NormalizedPrinterState {
     pub motion_report: Option<MotionReportState>,
     pub gcode_move: Option<GcodeMoveState>,
     pub exclude_object: Option<ExcludeObjectState>,
+    pub webhooks: Option<WebhooksState>,
+    pub idle_timeout: Option<IdleTimeoutState>,
+    pub console_events: Vec<ConsoleEvent>,
 }
 
 impl Default for NormalizedPrinterState {
@@ -97,6 +126,9 @@ impl Default for NormalizedPrinterState {
             motion_report: None,
             gcode_move: None,
             exclude_object: None,
+            webhooks: None,
+            idle_timeout: None,
+            console_events: Vec::new(),
         }
     }
 }
@@ -111,9 +143,10 @@ pub struct MoonrakerClient {
 
 impl MoonrakerClient {
     pub fn new(url: String, api_key: Option<String>) -> Self {
+        let cleaned_url = url.trim_end_matches('/').to_string();
         let (tx, _) = broadcast::channel(100);
         Self {
-            url,
+            url: cleaned_url,
             api_key,
             state: Arc::new(RwLock::new(NormalizedPrinterState::default())),
             broadcaster: tx,
@@ -131,6 +164,8 @@ impl MoonrakerClient {
 
     // HTTP command helpers
     pub async fn run_gcode(&self, gcode: &str) -> Result<(), reqwest::Error> {
+        self.add_console_event(gcode.to_string(), "command".to_string())
+            .await;
         let url = format!("{}/printer/gcode/script", self.url);
         let mut req = self.http_client.post(&url);
         if let Some(ref key) = self.api_key {
@@ -140,6 +175,35 @@ impl MoonrakerClient {
         let payload = serde_json::json!({ "script": gcode });
         req.json(&payload).send().await?.error_for_status()?;
         Ok(())
+    }
+
+    pub async fn add_console_event(&self, message: String, event_type: String) {
+        let mut st = self.state.write().await;
+        let event_type = if event_type == "response" {
+            if message.starts_with("// action:") {
+                "action".to_string()
+            } else if message.starts_with("// debug:") {
+                "debug".to_string()
+            } else if message.starts_with("!! ") {
+                "error".to_string()
+            } else {
+                event_type
+            }
+        } else {
+            event_type
+        };
+        st.console_events.push(ConsoleEvent {
+            time: current_time_seconds(),
+            message,
+            event_type,
+        });
+        if st.console_events.len() > 500 {
+            let drain_count = st.console_events.len() - 500;
+            st.console_events.drain(0..drain_count);
+        }
+        let state_val = st.clone();
+        drop(st);
+        let _ = self.broadcaster.send(state_val);
     }
 
     pub async fn upload_gcode(
@@ -224,6 +288,31 @@ impl MoonrakerClient {
         req.send().await?.error_for_status()?.text().await
     }
 
+    /// Proxy the Moonraker temperature store to get historical temperature data
+    pub async fn get_temperature_store(&self) -> Result<String, reqwest::Error> {
+        let url = format!(
+            "{}/server/temperature_store?include_monitors=true",
+            self.url
+        );
+        let mut req = self.http_client.get(&url);
+        if let Some(ref key) = self.api_key {
+            req = req.header("X-Api-Key", key);
+        }
+
+        let response = req.send().await?;
+        if response.status().is_success() {
+            return response.text().await;
+        }
+
+        let fallback_url = format!("{}/server/temperature_store", self.url);
+        let mut fallback_req = self.http_client.get(&fallback_url);
+        if let Some(ref key) = self.api_key {
+            fallback_req = fallback_req.header("X-Api-Key", key);
+        }
+
+        fallback_req.send().await?.error_for_status()?.text().await
+    }
+
     // Start WebSocket monitoring thread
     pub fn start_monitoring(self: Arc<Self>) {
         let client_clone = self.clone();
@@ -245,7 +334,29 @@ impl MoonrakerClient {
                     .broadcaster
                     .send(client_clone.state.read().await.clone());
 
-                match connect_async(&ws_url).await {
+                // Bound the connect attempt so an unreachable/powered-off
+                // printer fails fast (and retries) instead of hanging on the
+                // OS TCP timeout (~2 min) with the UI stuck on "connecting".
+                let connect_result =
+                    match tokio::time::timeout(Duration::from_secs(5), connect_async(&ws_url)).await
+                    {
+                        Ok(res) => res,
+                        Err(_) => {
+                            error!("Moonraker WS connect timed out after 5s");
+                            {
+                                let mut st = client_clone.state.write().await;
+                                st.connection_state = "error".to_string();
+                                st.state_message = Some("Connection timed out".to_string());
+                            }
+                            let _ = client_clone
+                                .broadcaster
+                                .send(client_clone.state.read().await.clone());
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                    };
+
+                match connect_result {
                     Ok((mut ws_stream, _)) => {
                         info!("Connected to Moonraker WebSocket successfully.");
                         {
@@ -262,6 +373,8 @@ impl MoonrakerClient {
                             "method": "printer.objects.subscribe",
                             "params": {
                                 "objects": {
+                                    "webhooks": ["state", "state_message"],
+                                    "idle_timeout": ["state", "printing_time"],
                                     "toolhead": ["status", "homed_axes", "speed_factor", "position", "axis_minimum", "axis_maximum"],
                                     "extruder": ["temperature", "target"],
                                     "heater_bed": ["temperature", "target"],
@@ -270,7 +383,7 @@ impl MoonrakerClient {
                                     "configfile": ["settings"],
                                     "virtual_sdcard": ["file_position"],
                                     "motion_report": ["live_position"],
-                                    "gcode_move": ["homing_origin"],
+                                    "gcode_move": ["homing_origin", "gcode_position", "speed_factor", "absolute_coordinates", "absolute_extrude"],
                                     "exclude_object": ["objects", "excluded_objects"]
                                 }
                             },
@@ -337,18 +450,45 @@ impl MoonrakerClient {
             }
         }
 
-        // 2. Klipper status updates
+        // 2. Klipper status updates (notify_status_update)
+        // Moonraker sends: {"method": "notify_status_update", "params": [<status_data>, <timestamp>]}
+        // The status data is directly at params[0], NOT nested under a "status" key.
         if let Some(method) = value.get("method") {
             if method.as_str() == Some("notify_status_update") {
                 if let Some(params) = value.get("params") {
                     if let Some(arr) = params.as_array() {
                         if !arr.is_empty() {
-                            if let Some(status) = arr[0].get("status") {
-                                Self::update_state_from_json(&mut st, status);
-                                state_changed = true;
-                            }
+                            Self::update_state_from_json(&mut st, &arr[0]);
+                            state_changed = true;
                         }
                     }
+                }
+            } else if method.as_str() == Some("notify_gcode_response") {
+                if let Some(message) = value
+                    .get("params")
+                    .and_then(|params| params.as_array())
+                    .and_then(|params| params.first())
+                    .and_then(|message| message.as_str())
+                {
+                    let event_type = if message.starts_with("// action:") {
+                        "action"
+                    } else if message.starts_with("// debug:") {
+                        "debug"
+                    } else if message.starts_with("!! ") {
+                        "error"
+                    } else {
+                        "response"
+                    };
+                    st.console_events.push(ConsoleEvent {
+                        time: current_time_seconds(),
+                        message: message.to_string(),
+                        event_type: event_type.to_string(),
+                    });
+                    if st.console_events.len() > 500 {
+                        let drain_count = st.console_events.len() - 500;
+                        st.console_events.drain(0..drain_count);
+                    }
+                    state_changed = true;
                 }
             }
         }
@@ -364,6 +504,51 @@ impl MoonrakerClient {
     }
 
     fn update_state_from_json(st: &mut NormalizedPrinterState, status: &serde_json::Value) {
+        // Extruder
+        if let Some(webhooks) = status.get("webhooks") {
+            let current = st.webhooks.clone().unwrap_or(WebhooksState {
+                state: None,
+                state_message: None,
+            });
+            let state_value = webhooks
+                .get("state")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or(current.state);
+            let state_message = webhooks
+                .get("state_message")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or(current.state_message);
+
+            if let Some(ref klippy_state) = state_value {
+                st.klipper_state = klippy_state.clone();
+            }
+            st.state_message = state_message.clone();
+            st.webhooks = Some(WebhooksState {
+                state: state_value,
+                state_message,
+            });
+        }
+
+        if let Some(idle_timeout) = status.get("idle_timeout") {
+            let current = st.idle_timeout.clone().unwrap_or(IdleTimeoutState {
+                state: None,
+                printing_time: None,
+            });
+            st.idle_timeout = Some(IdleTimeoutState {
+                state: idle_timeout
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or(current.state),
+                printing_time: idle_timeout
+                    .get("printing_time")
+                    .and_then(|v| v.as_f64())
+                    .or(current.printing_time),
+            });
+        }
+
         // Extruder
         if let Some(extruder) = status.get("extruder") {
             if let Some(temp) = extruder.get("temperature").and_then(|v| v.as_f64()) {
@@ -395,6 +580,9 @@ impl MoonrakerClient {
             let current = st.toolhead.clone().unwrap_or(ToolheadState {
                 axis_minimum: None,
                 axis_maximum: None,
+                position: None,
+                homed_axes: None,
+                speed_factor: None,
             });
             let axis_minimum = toolhead
                 .get("axis_minimum")
@@ -404,9 +592,26 @@ impl MoonrakerClient {
                 .get("axis_maximum")
                 .and_then(parse_f64_array)
                 .or(current.axis_maximum);
+            let position = toolhead
+                .get("position")
+                .and_then(parse_f64_array)
+                .or(current.position);
+            let homed_axes = toolhead
+                .get("homed_axes")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or(current.homed_axes);
+            let speed_factor = toolhead
+                .get("speed_factor")
+                .and_then(|v| v.as_f64())
+                .map(|v| v * 100.0)
+                .or(current.speed_factor);
             st.toolhead = Some(ToolheadState {
                 axis_minimum,
                 axis_maximum,
+                position,
+                homed_axes,
+                speed_factor,
             });
         }
 
@@ -438,8 +643,9 @@ impl MoonrakerClient {
             st.time_left = None;
         }
 
-        // Default klipper state to ready if connected
-        st.klipper_state = "ready".to_string();
+        if st.webhooks.is_none() && st.connection_state == "connected" {
+            st.klipper_state = "ready".to_string();
+        }
 
         if let Some(bed_mesh) = status.get("bed_mesh") {
             let current = st.bed_mesh.clone().unwrap_or(BedMeshState {
@@ -508,11 +714,35 @@ impl MoonrakerClient {
         }
 
         if let Some(gcode_move) = status.get("gcode_move") {
+            let current = st.gcode_move.clone().unwrap_or(GcodeMoveState {
+                homing_origin: None,
+                gcode_position: None,
+                speed_factor: None,
+                absolute_coordinates: None,
+                absolute_extrude: None,
+            });
             st.gcode_move = Some(GcodeMoveState {
                 homing_origin: gcode_move
                     .get("homing_origin")
                     .and_then(parse_f64_array)
-                    .or_else(|| st.gcode_move.as_ref().and_then(|g| g.homing_origin.clone())),
+                    .or(current.homing_origin),
+                gcode_position: gcode_move
+                    .get("gcode_position")
+                    .and_then(parse_f64_array)
+                    .or(current.gcode_position),
+                speed_factor: gcode_move
+                    .get("speed_factor")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v * 100.0)
+                    .or(current.speed_factor),
+                absolute_coordinates: gcode_move
+                    .get("absolute_coordinates")
+                    .and_then(|v| v.as_bool())
+                    .or(current.absolute_coordinates),
+                absolute_extrude: gcode_move
+                    .get("absolute_extrude")
+                    .and_then(|v| v.as_bool())
+                    .or(current.absolute_extrude),
             });
         }
 
@@ -571,4 +801,11 @@ fn encode_path(path: &str) -> String {
         })
         .collect::<Vec<String>>()
         .join("/")
+}
+
+fn current_time_seconds() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0)
 }

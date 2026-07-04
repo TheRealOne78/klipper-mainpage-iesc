@@ -128,7 +128,11 @@ impl SafetyManager {
     }
 
     pub fn validate_macro(macro_name: &str, config: &Config) -> Result<(), &'static str> {
-        let upper_name = macro_name.to_uppercase();
+        let upper_name = macro_name
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_uppercase();
         if !config
             .macros
             .guest_allowed

@@ -138,7 +138,11 @@ async fn main() {
         .route("/macro/run", post(run_macro))
         .route("/preheat", post(preheat))
         .route("/move", post(move_jog))
+        .route("/move_to", post(move_to))
+        .route("/motors/disable", post(disable_motors))
+        .route("/target_temp", post(set_target_temp))
         .route("/speed_factor", post(set_speed_factor))
+        .route("/temperature_store", get(get_temperature_store))
         .route("/ws", get(ws_handler));
 
     // CORS and middleware
@@ -233,6 +237,7 @@ async fn get_portal_config(State(state): State<Arc<AppState>>) -> Json<PortalCon
         allowed_macros: state.config.macros.guest_allowed.clone(),
         guest_auth_required,
         mainsail_url: state.config.mainsail.as_ref().map(|m| m.url.clone()),
+        moonraker_url: Some(state.config.moonraker.url.clone()),
     })
 }
 
@@ -714,11 +719,7 @@ async fn run_macro(
         return (StatusCode::FORBIDDEN, e).into_response();
     }
 
-    match state
-        .moonraker
-        .run_gcode(&payload.macro_name.to_uppercase())
-        .await
-    {
+    match state.moonraker.run_gcode(&payload.macro_name).await {
         Ok(_) => Json(StatusResponse {
             status: "ok".to_string(),
         })
@@ -786,6 +787,70 @@ async fn preheat(
 }
 
 #[derive(serde::Deserialize, utoipa::ToSchema)]
+struct TargetTempPayload {
+    heater: String,
+    target: f64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/target_temp",
+    request_body = TargetTempPayload,
+    responses(
+        (status = 200, description = "Temperatura tinta setata cu succes", body = StatusResponse),
+        (status = 403, description = "Temperatura in afara limitelor de siguranta")
+    )
+)]
+async fn set_target_temp(
+    State(state): State<Arc<AppState>>,
+    jar: CookieJar,
+    Json(payload): Json<TargetTempPayload>,
+) -> Response {
+    let _role = match check_authorized_action(&jar, &state.sessions, &state.config, false).await {
+        Ok(r) => r,
+        Err(s) => return s.into_response(),
+    };
+
+    let st = state.moonraker.get_state().read().await.clone();
+    if st.connection_state != "connected" {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Imprimanta este oprita sau deconectata",
+        )
+            .into_response();
+    }
+
+    let heater_lower = payload.heater.to_lowercase();
+    if heater_lower == "extruder" {
+        if let Err(e) = SafetyManager::validate_preheat(payload.target, 0.0, &state.config) {
+            return (StatusCode::FORBIDDEN, e).into_response();
+        }
+        let gcode = format!("M104 S{:.0}", payload.target);
+        match state.moonraker.run_gcode(&gcode).await {
+            Ok(_) => Json(StatusResponse {
+                status: "ok".to_string(),
+            })
+            .into_response(),
+            Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        }
+    } else if heater_lower == "heater_bed" || heater_lower == "bed" {
+        if let Err(e) = SafetyManager::validate_preheat(0.0, payload.target, &state.config) {
+            return (StatusCode::FORBIDDEN, e).into_response();
+        }
+        let gcode = format!("M140 S{:.0}", payload.target);
+        match state.moonraker.run_gcode(&gcode).await {
+            Ok(_) => Json(StatusResponse {
+                status: "ok".to_string(),
+            })
+            .into_response(),
+            Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        }
+    } else {
+        (StatusCode::BAD_REQUEST, "Heater invalid").into_response()
+    }
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
 struct JogPayload {
     axis: String,
     distance: f64,
@@ -820,17 +885,57 @@ async fn move_jog(
     }
     let is_printing = st.print_state == "printing";
 
-    if let Err(e) =
-        SafetyManager::validate_jog(&payload.axis, payload.distance, is_printing, &state.config)
-    {
-        return (StatusCode::FORBIDDEN, e).into_response();
-    }
+    let axis_lower = payload.axis.to_lowercase();
 
-    if payload.axis.to_lowercase() == "home" {
+    // 1. Handle homing operations
+    if axis_lower == "home"
+        || axis_lower == "homex"
+        || axis_lower == "homey"
+        || axis_lower == "homez"
+    {
         if let Err(e) = SafetyManager::validate_home(&state.config) {
             return (StatusCode::FORBIDDEN, e).into_response();
         }
-        match state.moonraker.run_gcode("G28").await {
+        let gcode = match axis_lower.as_str() {
+            "home" => {
+                let has_macro = st
+                    .configfile
+                    .as_ref()
+                    .and_then(|cf| cf.settings.as_ref())
+                    .and_then(|s| s.as_object())
+                    .map(|obj| {
+                        obj.contains_key("gcode_macro HOME_YXZ")
+                            || obj.contains_key("gcode_macro home_yxz")
+                    })
+                    .unwrap_or(false);
+                if has_macro {
+                    "HOME_YXZ"
+                } else {
+                    "G28"
+                }
+            }
+            "homex" => "G28 X",
+            "homey" => "G28 Y",
+            "homez" => "G28 Z",
+            _ => {
+                let has_macro = st
+                    .configfile
+                    .as_ref()
+                    .and_then(|cf| cf.settings.as_ref())
+                    .and_then(|s| s.as_object())
+                    .map(|obj| {
+                        obj.contains_key("gcode_macro HOME_YXZ")
+                            || obj.contains_key("gcode_macro home_yxz")
+                    })
+                    .unwrap_or(false);
+                if has_macro {
+                    "HOME_YXZ"
+                } else {
+                    "G28"
+                }
+            }
+        };
+        match state.moonraker.run_gcode(gcode).await {
             Ok(_) => {
                 return Json(StatusResponse {
                     status: "ok".to_string(),
@@ -841,12 +946,184 @@ async fn move_jog(
         }
     }
 
+    // 2. Handle Z-offset adjustments
+    if axis_lower == "z_offset" {
+        // limit Z-offset adjust value per click to a safe amount (e.g. max 1.0mm)
+        if payload.distance.abs() > 1.0 {
+            return (
+                StatusCode::FORBIDDEN,
+                "Ajustarea offset-ului Z depășește limita de siguranță",
+            )
+                .into_response();
+        }
+        let gcode = format!("SET_GCODE_OFFSET Z_ADJUST={:.4} MOVE=1", payload.distance);
+        match state.moonraker.run_gcode(&gcode).await {
+            Ok(_) => {
+                return Json(StatusResponse {
+                    status: "ok".to_string(),
+                })
+                .into_response()
+            }
+            Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        }
+    }
+
+    // 3. Regular Jog axes (X, Y, Z)
+    if let Err(e) =
+        SafetyManager::validate_jog(&payload.axis, payload.distance, is_printing, &state.config)
+    {
+        return (StatusCode::FORBIDDEN, e).into_response();
+    }
+
     let gcode = format!(
         "G91\nG1 {} {:.2} F1500\nG90",
         payload.axis.to_uppercase(),
         payload.distance
     );
     match state.moonraker.run_gcode(&gcode).await {
+        Ok(_) => Json(StatusResponse {
+            status: "ok".to_string(),
+        })
+        .into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct MoveToPayload {
+    axis: String,
+    position: f64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/move_to",
+    request_body = MoveToPayload,
+    responses(
+        (status = 200, description = "Mutare absoluta efectuata", body = StatusResponse),
+        (status = 403, description = "Pozitia depaseste limitele axei sau miscarea este blocata")
+    )
+)]
+async fn move_to(
+    State(state): State<Arc<AppState>>,
+    jar: CookieJar,
+    Json(payload): Json<MoveToPayload>,
+) -> Response {
+    let _role = match check_authorized_action(&jar, &state.sessions, &state.config, false).await {
+        Ok(r) => r,
+        Err(s) => return s.into_response(),
+    };
+
+    let st = state.moonraker.get_state().read().await.clone();
+    if st.connection_state != "connected" {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Imprimanta este oprita sau deconectata",
+        )
+            .into_response();
+    }
+
+    let is_printing = st.print_state == "printing";
+    if is_printing && !state.config.limits.allow_movement_while_printing {
+        return (
+            StatusCode::FORBIDDEN,
+            "Miscarea este dezactivata in timpul printarii",
+        )
+            .into_response();
+    }
+
+    let axis_lower = payload.axis.to_lowercase();
+    let axis_index = match axis_lower.as_str() {
+        "x" => 0,
+        "y" => 1,
+        "z" => 2,
+        _ => return (StatusCode::BAD_REQUEST, "Axa invalida").into_response(),
+    };
+
+    let homed_axes = st.homed_axes.to_lowercase();
+    if !homed_axes.contains(&axis_lower) {
+        return (StatusCode::FORBIDDEN, "Axa nu este homed").into_response();
+    }
+
+    let axis_minimum = st
+        .toolhead
+        .as_ref()
+        .and_then(|toolhead| toolhead.axis_minimum.as_ref())
+        .and_then(|bounds| bounds.get(axis_index))
+        .copied();
+    let axis_maximum = st
+        .toolhead
+        .as_ref()
+        .and_then(|toolhead| toolhead.axis_maximum.as_ref())
+        .and_then(|bounds| bounds.get(axis_index))
+        .copied();
+
+    let (axis_minimum, axis_maximum) = match (axis_minimum, axis_maximum) {
+        (Some(min), Some(max)) => (min, max),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "Limitele axei nu sunt disponibile in Moonraker",
+            )
+                .into_response()
+        }
+    };
+
+    if payload.position < axis_minimum || payload.position > axis_maximum {
+        return (
+            StatusCode::FORBIDDEN,
+            format!(
+                "Pozitia {}={:.3} depaseste limitele [{:.3}, {:.3}]",
+                axis_lower.to_uppercase(),
+                payload.position,
+                axis_minimum,
+                axis_maximum
+            ),
+        )
+            .into_response();
+    }
+
+    let feedrate = if axis_lower == "z" { 300 } else { 3000 };
+    let gcode = format!(
+        "SAVE_GCODE_STATE NAME=_ui_movement\nG90\nG1 {}{:.3} F{}\nRESTORE_GCODE_STATE NAME=_ui_movement",
+        axis_lower.to_uppercase(),
+        payload.position,
+        feedrate
+    );
+
+    match state.moonraker.run_gcode(&gcode).await {
+        Ok(_) => Json(StatusResponse {
+            status: "ok".to_string(),
+        })
+        .into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/motors/disable",
+    responses(
+        (status = 200, description = "Motoare oprite cu succes", body = StatusResponse),
+        (status = 403, description = "Neautorizat")
+    )
+)]
+async fn disable_motors(State(state): State<Arc<AppState>>, jar: CookieJar) -> Response {
+    let _role = match check_authorized_action(&jar, &state.sessions, &state.config, false).await {
+        Ok(r) => r,
+        Err(s) => return s.into_response(),
+    };
+
+    let st = state.moonraker.get_state().read().await.clone();
+    if st.connection_state != "connected" {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Imprimanta este oprita sau deconectata",
+        )
+            .into_response();
+    }
+
+    match state.moonraker.run_gcode("M18").await {
         Ok(_) => Json(StatusResponse {
             status: "ok".to_string(),
         })
@@ -900,6 +1177,13 @@ async fn set_speed_factor(
             status: "ok".to_string(),
         })
         .into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    }
+}
+
+async fn get_temperature_store(State(state): State<Arc<AppState>>) -> Response {
+    match state.moonraker.get_temperature_store().await {
+        Ok(body) => (StatusCode::OK, [("content-type", "application/json")], body).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
     }
 }
@@ -988,6 +1272,7 @@ struct PortalConfigResponse {
     allowed_macros: Vec<String>,
     guest_auth_required: bool,
     mainsail_url: Option<String>,
+    moonraker_url: Option<String>,
 }
 
 #[derive(serde::Serialize, utoipa::ToSchema)]
@@ -1038,6 +1323,7 @@ struct ContentResponse {
         run_macro,
         preheat,
         move_jog,
+        move_to,
         set_speed_factor,
     ),
     components(
@@ -1055,6 +1341,7 @@ struct ContentResponse {
             MacroPayload,
             PreheatPayload,
             JogPayload,
+            MoveToPayload,
             SpeedFactorPayload,
         )
     ),
