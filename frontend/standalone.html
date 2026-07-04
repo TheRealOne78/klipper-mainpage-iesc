@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>bare sindarius viewer repro</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #202020; }
+      canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="v"></canvas>
+    <script type="module">
+      import GCodeViewer from "@sindarius/gcodeviewer";
+      const viewer = new GCodeViewer(document.getElementById("v"));
+      await viewer.init();
+      viewer.setBackgroundColor("#202020");
+      window.__viewer = viewer;
+      window.__loadFile = async (text) => {
+        await viewer.processFile(text);
+        viewer.gcodeProcessor.updateFilePosition(viewer.fileSize);
+        viewer.forceRender();
+      };
+    </script>
+  </body>
+</html>

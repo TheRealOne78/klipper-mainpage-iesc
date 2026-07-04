@@ -4,8 +4,11 @@ import {
   Eye,
   EyeOff,
   FileUp,
+  Pause,
+  Play,
   RefreshCw,
   RotateCw,
+  Sparkles,
 } from "lucide-react";
 import GCodeViewerEngine from "@sindarius/gcodeviewer";
 import type { PortalConfig, PrinterState } from "../usePrinterState";
@@ -32,6 +35,7 @@ type ViewerInstance = {
   setBackgroundColor?: (color: string) => void;
   setProgressColor?: (color: string) => void;
   forceRender?: () => void;
+  simulateToolPosition?: () => void;
   fileSize?: number;
   axes?: {
     show?: (visible: boolean) => void;
@@ -51,6 +55,7 @@ type ViewerInstance = {
     updateFilePosition?: (position: number) => void;
     setColorMode?: (mode: number) => void;
     setLiveTracking?: (enabled: boolean) => void;
+    useHighQualityExtrusion?: (enabled: boolean) => void;
     updateTool?: (color: string, diameter: number, toolIndex: number) => void;
     loadingProgressCallback?: ((progress: number) => void) | null;
     cancelLoad?: boolean;
@@ -83,6 +88,20 @@ const fallbackBounds: BuildBounds = {
 // Matches Mainsail's tracking offset: trail slightly behind the actual
 // file position so the printed toolpath stays visible under the nozzle.
 const trackingOffset = 350;
+
+// The viewer library keeps module-level state (the orientation-cube scene
+// and a cached edge material), so a disposed engine poisons every viewer
+// created after it — the cube renders white garbage. Mirror Mainsail's
+// approach: create one canvas + viewer and reuse them across mounts
+// instead of disposing (Mainsail stores them as viewerBackup/canvasBackup).
+let sharedCanvas: HTMLCanvasElement | null = null;
+let sharedViewer: ViewerInstance | null = null;
+let sharedViewerInit: Promise<void> | null = null;
+let lastLoadedFile: {
+  content: string;
+  name: string;
+  bounds: BuildBounds | null;
+} | null = null;
 
 const cssVar = (name: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
@@ -182,7 +201,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   fileName,
   printerState,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ViewerInstance | null>(null);
   const viewerReadyRef = useRef(false);
   const activeLoadId = useRef(0);
@@ -191,7 +210,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   const loadContentRef = useRef<((content: string, name: string) => Promise<void>) | null>(null);
   const loadCurrentFileRef = useRef<(() => Promise<void>) | null>(null);
   const pendingLocalFileRef = useRef<{ content: string; name: string } | null>(null);
-  const appliedQualityRef = useRef<number | null>(null);
+  const appliedQualityRef = useRef<{ quality: number; hd: boolean } | null>(null);
   const [viewerReady, setViewerReady] = useState(false);
   const [loadedFileName, setLoadedFileName] = useState<string | null>(null);
   const [localFileBounds, setLocalFileBounds] = useState<BuildBounds | null>(null);
@@ -201,15 +220,27 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   const [showTravels, setShowTravels] = useState(false);
   const [showToolhead, setShowToolhead] = useState(true);
   const [quality, setQuality] = useState(3);
+  const [hdRendering, setHdRendering] = useState(false);
+  const [scrubFileSize, setScrubFileSize] = useState(0);
+  const [scrubPosition, setScrubPosition] = useState(0);
+  const [scrubPlaying, setScrubPlaying] = useState(false);
+  const [scrubSpeed, setScrubSpeed] = useState(1);
+
+  const liveTracking =
+    tracking &&
+    printerState?.print_state === "printing" &&
+    sameFile(loadedFileName, printerState?.filename);
+
+  // Key on the serialized values: the axis arrays get a fresh identity on
+  // every websocket update, which must not retrigger bed rebuilds.
+  const axisMinKey = printerState?.toolhead?.axis_minimum?.join() ?? null;
+  const axisMaxKey = printerState?.toolhead?.axis_maximum?.join() ?? null;
 
   const bounds: BuildBounds = useMemo(() => {
-    const min = printerState?.toolhead?.axis_minimum ?? fallbackMin;
-    const max = printerState?.toolhead?.axis_maximum ?? fallbackMax;
-    const hasPrinterBounds =
-      Array.isArray(printerState?.toolhead?.axis_minimum) &&
-      Array.isArray(printerState?.toolhead?.axis_maximum);
+    const min = axisMinKey !== null ? axisMinKey.split(",").map(Number) : fallbackMin;
+    const max = axisMaxKey !== null ? axisMaxKey.split(",").map(Number) : fallbackMax;
 
-    if (!hasPrinterBounds && localFileBounds) {
+    if ((axisMinKey === null || axisMaxKey === null) && localFileBounds) {
       return localFileBounds;
     }
 
@@ -218,11 +249,10 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       y: { min: min[1] ?? fallbackMin[1], max: max[1] ?? fallbackMax[1] },
       z: { min: min[2] ?? fallbackMin[2], max: max[2] ?? fallbackMax[2] },
     };
-  }, [
-    localFileBounds,
-    printerState?.toolhead?.axis_maximum,
-    printerState?.toolhead?.axis_minimum,
-  ]);
+  }, [axisMaxKey, axisMinKey, localFileBounds]);
+
+  const kinematics = printerState?.configfile?.settings?.printer?.kinematics;
+  const nozzleDiameter = getNozzleDiameter(printerState);
 
   const configureViewer = useCallback(
     (viewer: ViewerInstance, boundsOverride?: BuildBounds | null) => {
@@ -251,14 +281,11 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
           buildVolume.z.max = nextBounds.z.max;
         }
         viewer.bed.setBedColor?.(cssVar("--border-color", "#B3B3B3"));
-        const kinematics = printerState?.configfile?.settings?.printer?.kinematics;
         viewer.bed.setDelta?.(kinematics?.includes("delta") ?? false);
-        viewer.bed.dispose?.();
-        viewer.bed.buildBed?.();
       }
 
-      const nozzleDiameter = getNozzleDiameter(printerState);
       viewer.gcodeProcessor?.setColorMode?.(2);
+      viewer.gcodeProcessor?.useHighQualityExtrusion?.(hdRendering);
       viewer.gcodeProcessor?.updateTool?.(
         cssVar("--accent-color", "#f09343"),
         nozzleDiameter,
@@ -269,7 +296,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         tools[0].diameter = nozzleDiameter;
       }
     },
-    [bounds, printerState, quality, showToolhead, showTravels, theme],
+    [bounds, hdRendering, kinematics, nozzleDiameter, quality, showToolhead, showTravels, theme],
   );
 
   const loadContent = useCallback(
@@ -294,11 +321,16 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
 
       try {
         configureViewer(viewer, parsedBounds);
-        appliedQualityRef.current = quality;
+        appliedQualityRef.current = { quality, hd: hdRendering };
         await viewer.processFile(content);
         if (activeLoadId.current !== loadId) return;
         configureViewer(viewer, parsedBounds);
         showWholeFile(viewer);
+        lastLoadedFile = { content, name, bounds: parsedBounds };
+        const size = viewer.fileSize ?? content.length;
+        setScrubPlaying(false);
+        setScrubFileSize(size);
+        setScrubPosition(size);
         viewer.resetCamera();
         viewer.resize();
         requestAnimationFrame(() => {
@@ -321,7 +353,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         );
       }
     },
-    [configureViewer, lang, quality],
+    [configureViewer, hdRendering, lang, quality],
   );
 
   const loadCurrentFile = useCallback(async () => {
@@ -366,11 +398,28 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   }, [loadCurrentFile]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     let disposed = false;
-    const viewer = new GCodeViewerEngine(canvas) as ViewerInstance;
+
+    if (!sharedCanvas) {
+      sharedCanvas = document.createElement("canvas");
+    }
+    container.appendChild(sharedCanvas);
+
+    if (!sharedViewer) {
+      const viewer = new GCodeViewerEngine(sharedCanvas) as ViewerInstance;
+      sharedViewer = viewer;
+      sharedViewerInit = viewer.init(false).then(() => {
+        viewer.setZClipPlane?.(1000000, -1000000);
+        viewer.gcodeProcessor?.setLiveTracking?.(false);
+        if (import.meta.env.DEV) {
+          (window as unknown as { __gcodeViewer?: ViewerInstance }).__gcodeViewer = viewer;
+        }
+      });
+    }
+    const viewer = sharedViewer;
     viewerRef.current = viewer;
     viewerReadyRef.current = false;
     setViewerReady(false);
@@ -380,14 +429,12 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         viewer.resize();
       }
     });
-    resizeObserver.observe(canvas);
+    resizeObserver.observe(container);
 
     const init = async () => {
       try {
-        await viewer.init(false);
+        await sharedViewerInit;
         if (disposed) return;
-        viewer.setZClipPlane?.(1000000, -1000000);
-        viewer.gcodeProcessor?.setLiveTracking?.(false);
         if (viewer.gcodeProcessor) {
           viewer.gcodeProcessor.loadingProgressCallback = (progress: number) => {
             if (disposed) return;
@@ -402,11 +449,23 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         }
         viewerReadyRef.current = true;
         setViewerReady(true);
+        viewer.resize();
         configureViewerRef.current?.(viewer);
         const pendingLocalFile = pendingLocalFileRef.current;
         pendingLocalFileRef.current = null;
         if (pendingLocalFile) {
           await loadContentRef.current?.(pendingLocalFile.content, pendingLocalFile.name);
+        } else if (lastLoadedFile && (viewer.fileSize ?? 0) > 0) {
+          // The shared viewer still holds the model from the previous
+          // mount; restore the UI state without reprocessing the file.
+          setLocalFileBounds(lastLoadedFile.bounds);
+          setLoadedFileName(lastLoadedFile.name);
+          const size = viewer.fileSize ?? 0;
+          setScrubFileSize(size);
+          setScrubPosition(size);
+          showWholeFile(viewer);
+          setStatus("ready");
+          setMessage("");
         } else {
           await loadCurrentFileRef.current?.();
         }
@@ -433,8 +492,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       if (viewer.gcodeProcessor) {
         viewer.gcodeProcessor.loadingProgressCallback = null;
       }
-      viewer.scene?.dispose?.();
-      viewer.engine?.dispose?.();
+      if (sharedCanvas && sharedCanvas.parentElement === container) {
+        container.removeChild(sharedCanvas);
+      }
       viewerRef.current = null;
     };
   }, []);
@@ -446,30 +506,34 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     viewer.forceRender?.();
   }, [configureViewer, viewerReady]);
 
-  // Render quality only applies while parsing, so a quality change on an
-  // already loaded file needs a full reload (same as Mainsail).
+  // Render quality and HD extrusion only apply while parsing, so changing
+  // them on an already loaded file needs a full reload (same as Mainsail).
   useEffect(() => {
     const viewer = viewerRef.current;
+    const applied = appliedQualityRef.current;
     if (
       !viewerReady ||
       !isViewerReady(viewer) ||
       !loadedFileName ||
       !viewer.reload ||
-      appliedQualityRef.current === null ||
-      appliedQualityRef.current === quality
+      applied === null ||
+      (applied.quality === quality && applied.hd === hdRendering)
     ) {
       return;
     }
 
-    appliedQualityRef.current = quality;
+    appliedQualityRef.current = { quality, hd: hdRendering };
     const loadId = ++activeLoadId.current;
     setStatus("loading");
     viewer.updateRenderQuality?.(quality);
+    viewer.gcodeProcessor?.useHighQualityExtrusion?.(hdRendering);
     viewer
       .reload()
       .then(() => {
         if (activeLoadId.current !== loadId) return;
         showWholeFile(viewer);
+        setScrubPlaying(false);
+        setScrubPosition(viewer.fileSize ?? 0);
         setStatus("ready");
         setMessage("");
       })
@@ -481,18 +545,12 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
           langRef.current === "ro" ? "Reîncărcarea a eșuat." : "Reload failed.",
         );
       });
-  }, [loadedFileName, quality, viewerReady]);
+  }, [hdRendering, loadedFileName, quality, viewerReady]);
 
+  // Live tracking: follow the printer's real position through the file.
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewerReady || !isViewerReady(viewer) || status !== "ready") return;
-
-    const printingThisFile =
-      printerState?.print_state === "printing" &&
-      sameFile(loadedFileName, printerState?.filename);
-
-    if (!tracking || !printingThisFile) {
-      showWholeFile(viewer);
+    if (!viewerReady || !isViewerReady(viewer) || status !== "ready" || !liveTracking) {
       return;
     }
 
@@ -514,16 +572,58 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     }
     viewer.forceRender?.();
   }, [
-    loadedFileName,
-    printerState?.filename,
+    liveTracking,
     printerState?.gcode_move?.homing_origin,
     printerState?.motion_report?.live_position,
-    printerState?.print_state,
     printerState?.virtual_sdcard?.file_position,
     status,
-    tracking,
     viewerReady,
   ]);
+
+  // Manual scrubbing through the print when not live tracking.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (
+      !viewerReady ||
+      !isViewerReady(viewer) ||
+      status !== "ready" ||
+      liveTracking ||
+      scrubFileSize <= 0
+    ) {
+      return;
+    }
+
+    viewer.gcodeProcessor?.updateFilePosition?.(scrubPosition);
+    if (scrubPosition < scrubFileSize) {
+      viewer.simulateToolPosition?.();
+    }
+    viewer.forceRender?.();
+  }, [liveTracking, scrubFileSize, scrubPosition, status, viewerReady]);
+
+  // Restore the full model when live tracking ends.
+  useEffect(() => {
+    if (liveTracking) {
+      setScrubPlaying(false);
+      return;
+    }
+    setScrubPosition(scrubFileSize);
+  }, [liveTracking, scrubFileSize]);
+
+  useEffect(() => {
+    if (!scrubPlaying) return;
+    const interval = setInterval(() => {
+      setScrubPosition((position) =>
+        Math.min(position + 100 * scrubSpeed, scrubFileSize),
+      );
+    }, 200);
+    return () => clearInterval(interval);
+  }, [scrubFileSize, scrubPlaying, scrubSpeed]);
+
+  useEffect(() => {
+    if (scrubPlaying && scrubPosition >= scrubFileSize) {
+      setScrubPlaying(false);
+    }
+  }, [scrubFileSize, scrubPlaying, scrubPosition]);
 
   const handleLocalFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -599,7 +699,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       </div>
 
       <div className="native-visualizer-shell gcode-viewer-shell">
-        <canvas ref={canvasRef} className="gcode-viewer-canvas" />
+        <div ref={containerRef} className="gcode-viewer-canvas" />
         {message && (
           <div className={`visualizer-status-overlay ${status}`}>
             <span>{message}</span>
@@ -628,6 +728,18 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
               {showToolhead ? <Eye size={14} /> : <EyeOff size={14} />}
               <span>{lang === "ro" ? "Duză" : "Toolhead"}</span>
             </button>
+            <button
+              className={`btn-control ${hdRendering ? "active" : ""}`}
+              onClick={() => setHdRendering((value) => !value)}
+              title={
+                lang === "ro"
+                  ? "Extrudare de înaltă calitate (reîncarcă fișierul)"
+                  : "High quality extrusion (reloads the file)"
+              }
+            >
+              <Sparkles size={14} />
+              <span>HD</span>
+            </button>
           </div>
           <label className="control-slider-container">
             <span>{lang === "ro" ? "Calitate" : "Quality"}</span>
@@ -641,6 +753,52 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
             <span>{quality}</span>
           </label>
         </div>
+        {!liveTracking && scrubFileSize > 0 && status === "ready" && (
+          <div className="gcode-scrub-bar">
+            <button
+              className="btn-control"
+              onClick={() => {
+                if (!scrubPlaying && scrubPosition >= scrubFileSize) {
+                  setScrubPosition(0);
+                }
+                setScrubPlaying((value) => !value);
+              }}
+              title={
+                scrubPlaying
+                  ? lang === "ro"
+                    ? "Pauză"
+                    : "Pause"
+                  : lang === "ro"
+                    ? "Redă printarea"
+                    : "Play print"
+              }
+            >
+              {scrubPlaying ? <Pause size={14} /> : <Play size={14} />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max={scrubFileSize}
+              step="1"
+              value={Math.min(scrubPosition, scrubFileSize)}
+              onChange={(event) => {
+                setScrubPlaying(false);
+                setScrubPosition(Number(event.target.value));
+              }}
+            />
+            <button
+              className="btn-control"
+              onClick={() =>
+                setScrubSpeed((speed) =>
+                  speed >= 20 ? 1 : speed >= 10 ? 20 : speed >= 5 ? 10 : speed >= 2 ? 5 : 2,
+                )
+              }
+              title={lang === "ro" ? "Viteză de redare" : "Playback speed"}
+            >
+              <span>{scrubSpeed}x</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
