@@ -12,6 +12,7 @@ import type { PortalConfig, PrinterState } from "../usePrinterState";
 
 interface GcodeViewerProps {
   lang: "ro" | "en";
+  theme: "light" | "dark";
   fileName: string | null;
   printerState: PrinterState | null;
   config: PortalConfig | null;
@@ -25,11 +26,16 @@ type ViewerInstance = {
   resetCamera: () => void;
   toggleTravels?: (visible: boolean) => void;
   setCursorVisiblity?: (visible: boolean) => void;
+  setZClipPlane?: (top: number, bottom: number) => void;
   updateToolPosition?: (position: Array<{ axes: "X" | "Y" | "Z"; position: number }>) => void;
   updateRenderQuality?: (quality: number) => void;
   setBackgroundColor?: (color: string) => void;
   setProgressColor?: (color: string) => void;
   forceRender?: () => void;
+  fileSize?: number;
+  axes?: {
+    show?: (visible: boolean) => void;
+  };
   bed?: {
     buildVolume?: {
       x: { min: number; max: number };
@@ -44,7 +50,10 @@ type ViewerInstance = {
   gcodeProcessor?: {
     updateFilePosition?: (position: number) => void;
     setColorMode?: (mode: number) => void;
+    setLiveTracking?: (enabled: boolean) => void;
     updateTool?: (color: string, diameter: number, toolIndex: number) => void;
+    loadingProgressCallback?: ((progress: number) => void) | null;
+    cancelLoad?: boolean;
     tools?: Array<{ diameter?: number }>;
   };
   scene?: {
@@ -63,17 +72,6 @@ type BuildBounds = {
   z: { min: number; max: number };
 };
 
-type ToolpathSegment = {
-  start: [number, number, number];
-  end: [number, number, number];
-  extruding: boolean;
-};
-
-type ParsedToolpath = {
-  bounds: BuildBounds;
-  segments: ToolpathSegment[];
-};
-
 const fallbackMin = [0, 0, 0];
 const fallbackMax = [220, 220, 250];
 const fallbackBounds: BuildBounds = {
@@ -81,9 +79,10 @@ const fallbackBounds: BuildBounds = {
   y: { min: fallbackMin[1], max: fallbackMax[1] },
   z: { min: fallbackMin[2], max: fallbackMax[2] },
 };
-const viewerBackgroundColor = "#101318";
-const viewerProgressColor = "#38bdf8";
-const defaultToolColor = "#f59e0b";
+
+// Matches Mainsail's tracking offset: trail slightly behind the actual
+// file position so the printed toolpath stays visible under the nozzle.
+const trackingOffset = 350;
 
 const cssVar = (name: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
@@ -97,19 +96,26 @@ const sameFile = (left?: string | null, right?: string | null) =>
 const isViewerReady = (viewer: ViewerInstance | null): viewer is ViewerInstance =>
   Boolean(viewer?.engine && viewer?.scene && viewer.scene.activeCamera);
 
+// The renderer only draws toolpath segments whose file position is at or
+// before gcodeProcessor.currentFilePosition (later segments get alpha 0),
+// so after loading the position must be advanced to the end of the file
+// or nothing is visible.
+const showWholeFile = (viewer: ViewerInstance) => {
+  viewer.gcodeProcessor?.updateFilePosition?.(viewer.fileSize ?? 0);
+  viewer.forceRender?.();
+};
+
 const getNozzleDiameter = (printerState: PrinterState | null) => {
   const raw = printerState?.configfile?.settings?.extruder?.nozzle_diameter;
   const parsed = typeof raw === "string" ? Number(raw) : raw;
   return Number.isFinite(parsed) && parsed ? Number(parsed) : 0.4;
 };
 
-const parseGcodeToolpath = (content: string): ParsedToolpath | null => {
+const parseGcodeBounds = (content: string): BuildBounds | null => {
   let x = 0;
   let y = 0;
   let z = 0;
-  let e = 0;
   let absolutePositioning = true;
-  let relativeExtrusion = false;
   let xMin = Infinity;
   let xMax = -Infinity;
   let yMin = Infinity;
@@ -117,7 +123,6 @@ const parseGcodeToolpath = (content: string): ParsedToolpath | null => {
   let zMin = Infinity;
   let zMax = -Infinity;
   let hasXyMove = false;
-  const segments: ToolpathSegment[] = [];
 
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.split(";")[0].trim().toUpperCase();
@@ -131,67 +136,26 @@ const parseGcodeToolpath = (content: string): ParsedToolpath | null => {
       absolutePositioning = false;
       continue;
     }
-    if (/^M82\b/.test(line)) {
-      relativeExtrusion = false;
-      continue;
-    }
-    if (/^M83\b/.test(line)) {
-      relativeExtrusion = true;
-      continue;
-    }
-    if (/^G92\b/.test(line)) {
-      const eMatch = line.match(/\bE(-?\d*\.?\d+)/);
-      if (eMatch) e = Number(eMatch[1]);
-      continue;
-    }
     if (!/^(G0|G1)\b/.test(line)) continue;
 
     const xMatch = line.match(/\bX(-?\d*\.?\d+)/);
     const yMatch = line.match(/\bY(-?\d*\.?\d+)/);
     const zMatch = line.match(/\bZ(-?\d*\.?\d+)/);
-    const eMatch = line.match(/\bE(-?\d*\.?\d+)/);
-
-    const start: [number, number, number] = [x, y, z];
-    let nextX = x;
-    let nextY = y;
-    let nextZ = z;
-    let nextE = e;
 
     if (xMatch) {
       const value = Number(xMatch[1]);
-      nextX = absolutePositioning ? value : x + value;
+      x = absolutePositioning ? value : x + value;
     }
     if (yMatch) {
       const value = Number(yMatch[1]);
-      nextY = absolutePositioning ? value : y + value;
+      y = absolutePositioning ? value : y + value;
     }
     if (zMatch) {
       const value = Number(zMatch[1]);
-      nextZ = absolutePositioning ? value : z + value;
-    }
-    if (eMatch) {
-      const value = Number(eMatch[1]);
-      nextE = relativeExtrusion ? e + value : value;
+      z = absolutePositioning ? value : z + value;
     }
 
-    const extrusionDelta = nextE - e;
-    const hasPositionMove = Boolean(xMatch || yMatch || zMatch);
-    const hasXyMoveOnLine = Boolean(xMatch || yMatch);
-
-    if (hasPositionMove) {
-      segments.push({
-        start,
-        end: [nextX, nextY, nextZ],
-        extruding: extrusionDelta > 0 && hasXyMoveOnLine,
-      });
-    }
-
-    x = nextX;
-    y = nextY;
-    z = nextZ;
-    e = nextE;
-
-    if (hasXyMoveOnLine) {
+    if (xMatch || yMatch) {
       hasXyMove = true;
       xMin = Math.min(xMin, x);
       xMax = Math.max(xMax, x);
@@ -206,22 +170,19 @@ const parseGcodeToolpath = (content: string): ParsedToolpath | null => {
 
   const pad = 12;
   return {
-    bounds: {
-      x: { min: Math.max(0, xMin - pad), max: xMax + pad },
-      y: { min: Math.max(0, yMin - pad), max: yMax + pad },
-      z: { min: Math.min(0, zMin), max: Math.max(zMax + pad, 40) },
-    },
-    segments,
+    x: { min: Math.max(0, xMin - pad), max: xMax + pad },
+    y: { min: Math.max(0, yMin - pad), max: yMax + pad },
+    z: { min: Math.min(0, zMin), max: Math.max(zMax + pad, 40) },
   };
 };
 
 export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   lang,
+  theme,
   fileName,
   printerState,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerRef = useRef<ViewerInstance | null>(null);
   const viewerReadyRef = useRef(false);
   const activeLoadId = useRef(0);
@@ -230,10 +191,10 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   const loadContentRef = useRef<((content: string, name: string) => Promise<void>) | null>(null);
   const loadCurrentFileRef = useRef<(() => Promise<void>) | null>(null);
   const pendingLocalFileRef = useRef<{ content: string; name: string } | null>(null);
+  const appliedQualityRef = useRef<number | null>(null);
   const [viewerReady, setViewerReady] = useState(false);
   const [loadedFileName, setLoadedFileName] = useState<string | null>(null);
   const [localFileBounds, setLocalFileBounds] = useState<BuildBounds | null>(null);
-  const [toolpathSegments, setToolpathSegments] = useState<ToolpathSegment[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [message, setMessage] = useState("");
   const [tracking, setTracking] = useState(true);
@@ -267,31 +228,48 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     (viewer: ViewerInstance, boundsOverride?: BuildBounds | null) => {
       if (!isViewerReady(viewer)) return;
 
+      const isLight = theme === "light";
       const nextBounds = boundsOverride ?? bounds ?? fallbackBounds;
-      viewer.setBackgroundColor?.(viewerBackgroundColor);
-      viewer.setProgressColor?.(viewerProgressColor);
+      viewer.setBackgroundColor?.(
+        cssVar("--surface-color", isLight ? "#fef7ff" : "#202020"),
+      );
+      viewer.setProgressColor?.(
+        cssVar("--accent-color", isLight ? "#0064a0" : "#f09343"),
+      );
       viewer.updateRenderQuality?.(quality);
       viewer.toggleTravels?.(showTravels);
       viewer.setCursorVisiblity?.(showToolhead);
 
       if (viewer.bed) {
-        viewer.bed.buildVolume = nextBounds;
-        viewer.bed.setBedColor?.(cssVar("--border-color", "#313131"));
+        const buildVolume = viewer.bed.buildVolume;
+        if (buildVolume) {
+          buildVolume.x.min = nextBounds.x.min;
+          buildVolume.x.max = nextBounds.x.max;
+          buildVolume.y.min = nextBounds.y.min;
+          buildVolume.y.max = nextBounds.y.max;
+          buildVolume.z.min = nextBounds.z.min;
+          buildVolume.z.max = nextBounds.z.max;
+        }
+        viewer.bed.setBedColor?.(cssVar("--border-color", "#B3B3B3"));
         const kinematics = printerState?.configfile?.settings?.printer?.kinematics;
-        viewer.bed.setDelta?.(kinematics === "delta");
+        viewer.bed.setDelta?.(kinematics?.includes("delta") ?? false);
         viewer.bed.dispose?.();
         viewer.bed.buildBed?.();
       }
 
       const nozzleDiameter = getNozzleDiameter(printerState);
       viewer.gcodeProcessor?.setColorMode?.(2);
-      viewer.gcodeProcessor?.updateTool?.(defaultToolColor, nozzleDiameter, 0);
+      viewer.gcodeProcessor?.updateTool?.(
+        cssVar("--accent-color", "#f09343"),
+        nozzleDiameter,
+        0,
+      );
       const tools = viewer.gcodeProcessor?.tools;
       if (Array.isArray(tools) && tools.length > 0) {
         tools[0].diameter = nozzleDiameter;
       }
     },
-    [bounds, printerState, quality, showToolhead, showTravels],
+    [bounds, printerState, quality, showToolhead, showTravels, theme],
   );
 
   const loadContent = useCallback(
@@ -309,18 +287,18 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       }
 
       const loadId = ++activeLoadId.current;
-      const parsedToolpath = parseGcodeToolpath(content);
-      const parsedBounds = parsedToolpath?.bounds ?? null;
-      setToolpathSegments(parsedToolpath?.segments ?? []);
+      const parsedBounds = parseGcodeBounds(content);
       setLocalFileBounds(parsedBounds);
       setStatus("loading");
       setMessage(lang === "ro" ? "Se încarcă fișierul..." : "Loading file...");
 
       try {
         configureViewer(viewer, parsedBounds);
+        appliedQualityRef.current = quality;
         await viewer.processFile(content);
         if (activeLoadId.current !== loadId) return;
         configureViewer(viewer, parsedBounds);
+        showWholeFile(viewer);
         viewer.resetCamera();
         viewer.resize();
         requestAnimationFrame(() => {
@@ -343,7 +321,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         );
       }
     },
-    [configureViewer, lang],
+    [configureViewer, lang, quality],
   );
 
   const loadCurrentFile = useCallback(async () => {
@@ -408,6 +386,20 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       try {
         await viewer.init(false);
         if (disposed) return;
+        viewer.setZClipPlane?.(1000000, -1000000);
+        viewer.gcodeProcessor?.setLiveTracking?.(false);
+        if (viewer.gcodeProcessor) {
+          viewer.gcodeProcessor.loadingProgressCallback = (progress: number) => {
+            if (disposed) return;
+            const percent = Math.ceil(progress * 100);
+            if (percent <= 99) {
+              setStatus("loading");
+              setMessage(
+                `${langRef.current === "ro" ? "Se randează" : "Rendering"}... ${percent}%`,
+              );
+            }
+          };
+        }
         viewerReadyRef.current = true;
         setViewerReady(true);
         configureViewerRef.current?.(viewer);
@@ -438,6 +430,9 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       setViewerReady(false);
       activeLoadId.current += 1;
       resizeObserver.disconnect();
+      if (viewer.gcodeProcessor) {
+        viewer.gcodeProcessor.loadingProgressCallback = null;
+      }
       viewer.scene?.dispose?.();
       viewer.engine?.dispose?.();
       viewerRef.current = null;
@@ -451,14 +446,53 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     viewer.forceRender?.();
   }, [configureViewer, viewerReady]);
 
+  // Render quality only applies while parsing, so a quality change on an
+  // already loaded file needs a full reload (same as Mainsail).
   useEffect(() => {
     const viewer = viewerRef.current;
     if (
       !viewerReady ||
       !isViewerReady(viewer) ||
-      !tracking ||
-      !sameFile(loadedFileName, printerState?.filename)
+      !loadedFileName ||
+      !viewer.reload ||
+      appliedQualityRef.current === null ||
+      appliedQualityRef.current === quality
     ) {
+      return;
+    }
+
+    appliedQualityRef.current = quality;
+    const loadId = ++activeLoadId.current;
+    setStatus("loading");
+    viewer.updateRenderQuality?.(quality);
+    viewer
+      .reload()
+      .then(() => {
+        if (activeLoadId.current !== loadId) return;
+        showWholeFile(viewer);
+        setStatus("ready");
+        setMessage("");
+      })
+      .catch((error) => {
+        if (activeLoadId.current !== loadId) return;
+        console.error("G-code viewer reload failed", error);
+        setStatus("error");
+        setMessage(
+          langRef.current === "ro" ? "Reîncărcarea a eșuat." : "Reload failed.",
+        );
+      });
+  }, [loadedFileName, quality, viewerReady]);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewerReady || !isViewerReady(viewer) || status !== "ready") return;
+
+    const printingThisFile =
+      printerState?.print_state === "printing" &&
+      sameFile(loadedFileName, printerState?.filename);
+
+    if (!tracking || !printingThisFile) {
+      showWholeFile(viewer);
       return;
     }
 
@@ -472,129 +506,24 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       ]);
     }
 
-    const filePosition = printerState?.virtual_sdcard?.file_position;
-    if (typeof filePosition === "number") {
-      viewer.gcodeProcessor?.updateFilePosition?.(filePosition);
-      viewer.forceRender?.();
+    const filePosition = printerState?.virtual_sdcard?.file_position ?? 0;
+    if (filePosition > trackingOffset) {
+      viewer.gcodeProcessor?.updateFilePosition?.(filePosition - trackingOffset);
+    } else {
+      viewer.gcodeProcessor?.updateFilePosition?.(viewer.fileSize ?? 0);
     }
+    viewer.forceRender?.();
   }, [
     loadedFileName,
     printerState?.filename,
     printerState?.gcode_move?.homing_origin,
     printerState?.motion_report?.live_position,
+    printerState?.print_state,
     printerState?.virtual_sdcard?.file_position,
+    status,
     tracking,
     viewerReady,
   ]);
-
-  useEffect(() => {
-    const canvas = overlayCanvasRef.current;
-    if (!canvas) return;
-
-    const draw = () => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(rect.width * dpr));
-      canvas.height = Math.max(1, Math.round(rect.height * dpr));
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, rect.width, rect.height);
-      if (!toolpathSegments.length) return;
-
-      const activeBounds = localFileBounds ?? bounds;
-      const centerX = (activeBounds.x.min + activeBounds.x.max) / 2;
-      const centerY = (activeBounds.y.min + activeBounds.y.max) / 2;
-      const minZ = activeBounds.z.min;
-      const yaw = -0.72;
-      const pitch = 0.82;
-
-      const projectRaw = ([px, py, pz]: [number, number, number]) => {
-        const tx = px - centerX;
-        const ty = py - centerY;
-        const tz = pz - minZ;
-        const rx = tx * Math.cos(yaw) - ty * Math.sin(yaw);
-        const ry = tx * Math.sin(yaw) + ty * Math.cos(yaw);
-        const rz = tz;
-        return {
-          x: rx,
-          y: -(ry * Math.cos(pitch) - rz * Math.sin(pitch)),
-        };
-      };
-
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minY = Infinity;
-      let maxY = -Infinity;
-      for (const segment of toolpathSegments) {
-        if (!showTravels && !segment.extruding) continue;
-        const a = projectRaw(segment.start);
-        const b = projectRaw(segment.end);
-        minX = Math.min(minX, a.x, b.x);
-        maxX = Math.max(maxX, a.x, b.x);
-        minY = Math.min(minY, a.y, b.y);
-        maxY = Math.max(maxY, a.y, b.y);
-      }
-
-      if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
-
-      const projectedWidth = Math.max(1, maxX - minX);
-      const projectedHeight = Math.max(1, maxY - minY);
-      const scale = Math.min(
-        (rect.width * 0.76) / projectedWidth,
-        (rect.height * 0.7) / projectedHeight,
-      );
-      const offsetX = rect.width / 2 - ((minX + maxX) / 2) * scale;
-      const offsetY = rect.height / 2 - ((minY + maxY) / 2) * scale;
-      const zRange = Math.max(1, activeBounds.z.max - activeBounds.z.min);
-
-      const project = (point: [number, number, number]) => {
-        const raw = projectRaw(point);
-        return {
-          x: raw.x * scale + offsetX,
-          y: raw.y * scale + offsetY,
-        };
-      };
-
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      if (showTravels) {
-        ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        for (const segment of toolpathSegments) {
-          if (segment.extruding) continue;
-          const a = project(segment.start);
-          const b = project(segment.end);
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-        }
-        ctx.stroke();
-      }
-
-      ctx.lineWidth = 1.35;
-      for (const segment of toolpathSegments) {
-        if (!segment.extruding) continue;
-        const zRatio = (segment.end[2] - activeBounds.z.min) / zRange;
-        const hue = 202 + zRatio * 95;
-        const a = project(segment.start);
-        const b = project(segment.end);
-        ctx.strokeStyle = `hsla(${hue}, 92%, 62%, 0.9)`;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-    };
-
-    draw();
-    const resizeObserver = new ResizeObserver(draw);
-    resizeObserver.observe(canvas);
-    return () => resizeObserver.disconnect();
-  }, [bounds, localFileBounds, showTravels, toolpathSegments]);
 
   const handleLocalFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -610,6 +539,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       } else if (viewerReady && isViewerReady(viewerRef.current) && viewerRef.current.reload) {
         setStatus("loading");
         await viewerRef.current.reload();
+        showWholeFile(viewerRef.current);
         setStatus("ready");
       }
     } catch (error) {
@@ -670,7 +600,6 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
 
       <div className="native-visualizer-shell gcode-viewer-shell">
         <canvas ref={canvasRef} className="gcode-viewer-canvas" />
-        <canvas ref={overlayCanvasRef} className="gcode-toolpath-overlay" />
         {message && (
           <div className={`visualizer-status-overlay ${status}`}>
             <span>{message}</span>

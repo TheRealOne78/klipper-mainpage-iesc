@@ -646,6 +646,7 @@ const App: React.FC = () => {
             {page === "gcode_viewer" && (
               <GcodeViewer
                 lang={lang}
+                theme={theme}
                 fileName={uploadedFileName || printerState?.filename || null}
                 printerState={printerState}
                 config={portalConfig}
