@@ -1,7 +1,7 @@
 # 3D Printing Rules (Ender 3 Pro)
 
 > [!WARNING]
-> Read these rules before printing! The Ender 3 Pro relies on manual adjustments, and incorrect usage can damage the magnetic bed or clog the nozzle. Any damage caused by negligence will be the user's responsibility.
+> Read these rules before printing! Incorrect usage can damage the 3D printer. Any damage caused by negligence will be the user's responsibility.
 
 ## General Safety & Usage Rules
 1. **Manual Bed Leveling:** Since this printer does not have an auto-bed leveling sensor (BLTouch), you must manually level the bed using the 4 adjustment wheels and the "paper test" before starting. A nozzle too close will scratch and permanently damage the C-Mag magnetic sheet.

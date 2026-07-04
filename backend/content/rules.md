@@ -1,7 +1,7 @@
 # Regulament Printare 3D (Ender 3 Pro)
 
 > [!WARNING]
-> Citiți regulamentul înainte de a printa! Ender 3 Pro este o imprimantă cu reglaje manuale, iar utilizarea incorectă poate deteriora patul magnetic sau bloca duza. Orice daună cauzată de neglijență va fi suportată de utilizator.
+> Citește regulamentul înainte de a printa! Utilizarea incorectă poate deteriora imprimanta. Orice daună cauzată de neglijență va fi suportată de utilizator.
 
 ## Reguli Generale de Siguranță
 1. **Nivelarea patului (Bed Leveling):** Deoarece imprimanta nu are senzor de auto-nivelare (BLTouch), sunteți obligați să faceți nivelarea manuală folosind cele 4 rotițe și o foaie de hârtie înainte de a porni printul. O duză prea apropiată va zgâria și distruge patul magnetic C-Mag.

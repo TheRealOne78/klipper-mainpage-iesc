@@ -136,6 +136,14 @@ body {
         color: var(--accent-color);
       }
     }
+
+    .ut-symbol {
+      font-family: "UT Symbols", sans-serif;
+      font-size: 1.25rem;
+      line-height: 0;
+      display: block;
+      transform: translateY(-2px);
+    }
   }
 }
 

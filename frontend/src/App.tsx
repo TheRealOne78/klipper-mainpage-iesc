@@ -16,7 +16,6 @@ import {
           Upload,
           AlertTriangle,
           X,
-  GraduationCap,
   Compass,
   Eye,
   LayoutDashboard,
@@ -718,13 +717,13 @@ const App: React.FC = () => {
         {/* Social / Link Icons */}
         <div className="footer-links">
           <a href="https://www.unitbv.ro" target="_blank" rel="noopener noreferrer" title="UNITBV">
-            <Globe size={20} />
+            <span className="ut-symbol">U</span>
           </a>
           <a href="https://iesc.unitbv.ro" target="_blank" rel="noopener noreferrer" title="IESC">
-            <GraduationCap size={20} />
+            <span className="ut-symbol">E</span>
           </a>
           <a
-            href="https://github.com/placeholder/klipper-mainpage"
+            href="https://github.com/TheRealOne78/klipper-mainpage-iesc"
             target="_blank"
             rel="noopener noreferrer"
             title="GitHub Repository"
