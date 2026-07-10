@@ -77,4 +77,4 @@ Not every bundled asset is necessarily covered by the same terms. Branding asset
 
 ## Provenance
 
-This repository was developed with AI-assisted, vibe-coded workflows. That is a statement about how it was produced, not a substitute for engineering review. Treat it like any other system that controls real hardware: read the code, review the policies, and test the deployment you intend to trust.
+This repository was developed with LLM-assisted, vibe-coded workflows. That is a statement about how it was produced, not a substitute for engineering review. Treat it like any other system that controls real hardware: read the code, review the policies, and test the deployment you intend to trust.
