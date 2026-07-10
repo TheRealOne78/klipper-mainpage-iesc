@@ -9,9 +9,9 @@ This repository contains software, data, and assets with different provenance. T
 - It exists to add organization-level permissions, policy controls, and operational restrictions for shared printers.
 - If you do not need those controls, use upstream Mainsail or Fluidd instead.
 
-## AI-Assisted Development
+## LLM-Assisted Development
 
-The repository was developed with AI-assisted, vibe-coded workflows. That statement is included for provenance, not as a quality claim or liability waiver.
+The repository was developed with LLM-assisted, vibe-coded workflows. That statement is included for provenance, not as a quality claim or liability waiver.
 
 ## Bundled Assets and Data
 
