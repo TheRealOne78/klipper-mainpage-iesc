@@ -1,176 +1,80 @@
-# Klipper Guest Print Portal
+# klipper-mainpage
 
-A secure, full-stack, guest-restricted web portal for a Klipper/Moonraker 3D printer. This project allows university students and guest users to safely monitor, control, and upload G-code files to a 3D printer without exposing raw Moonraker access, enforcing strict Role-Based Access Control (RBAC) and movement safety bounds.
+`klipper-mainpage` is a Mainsail-style web interface for Klipper/Moonraker deployments that need organization-level access control.
 
----
+This project exists for setups where a printer is shared across a lab, school, makerspace, or similar environment and the operator needs more than a single trusted UI. The codebase adds permission levels, account management, audit logging, branded operator content, and policy controls around a Klipper printer without exposing raw Moonraker access to every user.
 
-## 🌟 Features
+It is, in practical terms, a clone project in the Mainsail family of interfaces. It is not affiliated with, endorsed by, or impersonating Mainsail. The point here is not to replace upstream Mainsail or Fluidd for normal single-owner printers; it is to add institutional control surfaces that those projects are not trying to be. If you run your own printer and do not need organization-level permissions, groups, audit logs, or sign-up restrictions, you should keep using Mainsail or Fluidd.
 
-- **Rust/Axum Backend**: High-performance, memory-safe proxy server interfacing with the Moonraker API.
-- **WebSocket State Multiplexing**: Real-time status updates broadcast from Moonraker directly to all connected frontend clients.
-- **Vite + React + SCSS + TypeScript SPA**: Beautiful, modern single page application optimized for fast load times and persistent state during navigation.
-- **Premium Aesthetics**: Features a fully custom design with light and dark themes tailored to academic and industrial branding, incorporating premium components and micro-interactions.
-- **Configurable Safety Guardrails**:
-  - Whitelisted macros for guests (e.g. filament load/unload).
-  - Absolute movement (jog) steps limits.
-  - Temperature caps and preset bounds for PLA, PETG, TPU, ABS.
-  - Optional homing axis lockdown for guests.
-  - Speed multiplication constraints.
-  - Strict path traversal protection for file uploads.
-- **Role-Based Access Control (RBAC)**: Secure cookie-based session management, separating `Guest` and `Admin` permissions.
+## What It Adds
 
----
+- Group-based permissions for anonymous users, guests, admins, and custom groups
+- Self-signup accounts with domain restrictions, email verification, and proof-of-work anti-spam
+- Audit logging for administrative and security-sensitive actions
+- IP and GeoIP-based access restrictions
+- Admin-managed branding, warning content, footer links, and localized operator pages
+- Pending-upload review flow for OctoPrint-compatible slicer uploads
+- A Moonraker proxy layer that centralizes policy enforcement and websocket fan-out
 
-## 🏗️ Architecture
+## Stack
 
-```mermaid
-graph TD
-    subgraph Frontend [Vite React SPA Client]
-        UI[Dashboard / Controls] <-->|WS / HTTP API| Hook[usePrinterState]
-    end
+- Frontend: React, TypeScript, Vite, SCSS
+- Backend: Rust, Axum, Tokio, SQLite
+- Printer API: Moonraker / Klipper
 
-    subgraph Backend [Rust Axum Portal Proxy]
-        Server[Axum Server] <-->|Validate Session / Safety Bounds| Sec[SecurityManager]
-        Server <-->|Broadcast Cache| StateCache[(State Cache)]
-        SessionMgr[SessionManager] <--> Server
-    end
+## Repository Layout
 
-    subgraph Printer [Moonraker/Klipper Service]
-        Moonraker[Moonraker WS / HTTP API] <--> Klipper[Klipper Firmware]
-    end
-
-    Hook <--> Server
-    Server <-->|WS / HTTP Client| Moonraker
+```text
+backend/   Rust backend, config, content, runtime assets
+frontend/  React application and frontend tests
+LICENSE    GNU AGPL v3
+ATTRIBUTIONS.md
+Makefile
 ```
 
----
+## Development
 
-## ⚙️ Configuration (`config.toml`)
+Prerequisites:
 
-The application is configured using a `config.toml` file in the backend root. If it does not exist, running the backend will automatically generate a default one:
+- Rust and Cargo
+- Node.js and npm
 
-```toml
-[server]
-host = "127.0.0.1"
-port = 8080
+Typical local workflow:
 
-[auth]
-# BCrypt password hashes
-guest_password_hash = "" # Leave empty for implicit guest access
-admin_password_hash = "$2b$12$LlhgX91fU1z99fI... (example)"
-
-[moonraker]
-url = "http://127.0.0.1:7125"
-api_key = "" # Optional
-
-[limits]
-max_speed_factor = 150.0 # % (Capped at 500%)
-max_upload_mb = 100
-allow_movement_while_printing = false
-allow_home_for_guests = false
-max_jog_step = 10.0 # mm
-
-[preheat.pla]
-hotend = 210.0
-bed = 60.0
-
-[preheat.petg]
-hotend = 240.0
-bed = 80.0
-
-[macros]
-guest_allowed = ["LOAD_FILAMENT", "UNLOAD_FILAMENT", "CLEAN_NOZZLE"]
-
-[branding]
-app_name = "Restricted Print Portal"
-faculty_name = "Technical University of Cluj-Napoca"
-logo_light = "assets/logo/Logo-UT-NEGRU-RO.png"
-logo_dark = "assets/logo/Logo-UT-ALB-RO.png"
-danger_image = "assets/logo/danger.png"
-moron_warning_text = "Cititi regulile inainte de a printa si nu fiti iresponsabili! Orice defectiune va fi suportata de utilizator."
-
-[theme]
-font_family = "UT Sans"
-```
-
----
-
-## 🚀 Building and Running
-
-### Prerequisites
-- [Rust & Cargo](https://rustup.rs/) (edition 2021)
-- [Node.js & npm](https://nodejs.org/)
-
-### 1. Compile the Frontend
-First, install dependencies and compile the Single Page Application into static assets:
 ```bash
-cd frontend
-npm install
-npm run build
-cd ..
+make install
+make dev
 ```
-The output will compile to `frontend/dist/`.
 
-### 2. Build and Run the Backend
-Build and run the Axum server:
+Other useful commands:
+
 ```bash
-cd backend
-cargo run
-```
-On startup, the backend:
-1. Loads configuration from `config.toml` (generates default if missing).
-2. Sets up default Markdown documentation files in `content/` (`rules.md` and `troubleshooting.md`).
-3. Connects to the Moonraker WebSocket.
-4. Starts serving the frontend SPA and backend API on `http://127.0.0.1:8080`.
-
----
-
-## 📂 Project Structure
-
-```
-├── backend
-│   ├── Cargo.toml
-│   └── src
-│       ├── config.rs      # Config parsing & structs
-│       ├── main.rs        # Axum HTTP routes & static serving
-│       ├── moonraker.rs   # WebSocket & HTTP client to Moonraker
-│       └── security.rs    # Safety limits & Session validations
-├── content
-│   ├── rules.md           # Rendered safety regulations (Romanian)
-│   └── troubleshooting.md # Rendered troubleshooting instructions
-└── frontend
-    ├── index.html
-    ├── package.json
-    ├── vite.config.ts
-    └── src
-        ├── App.tsx        # Main view controller
-        ├── index.scss     # SCSS stylesheet variables & layouts
-        ├── usePrinterState.ts # Custom WS state synchronization hook
-        └── pages
-            ├── LandingPage.tsx
-            ├── Rules.tsx
-            ├── Troubleshooting.tsx
-            ├── Dashboard.tsx
-            └── AdminSettings.tsx
+make build
+make test
+make lint
 ```
 
----
+The backend reads runtime state from `backend/` by default during local development. For deployments that should keep runtime data outside the source checkout, set:
 
-## 🛡️ Safety & Security Design
+- `KLIPPER_PORTAL_HOME` for `config.toml`, `content/`, `data/`, and uploaded assets
+- `KLIPPER_PORTAL_FRONTEND_DIST` for the built frontend directory
 
-1. **Path Traversal Protection**: G-code filenames are sanitized using regex (`^[a-zA-Z0-9_-]+\.[gG][cC][oO][dD][eE]?$`) to prevent directory traversal and illegal characters.
-2. **Speed Multiplier Cap**: Enforced at the API layer; guest and admin adjustments are validated against `max_speed_factor` (max hard cap 500%).
-3. **No Raw Command Interface**: There are no API endpoints accepting raw command input (like `/api/gcode`). All commands (jog, preheat, home) are generated by the server via parameterized request inputs.
-4. **WebSocket Decoupling**: Clients never connect directly to Moonraker. The backend server maintains a single websocket link to Moonraker, normalizes printer states, and broadcasts this cache to guests.
+## Deployment Notes
 
----
+This project is intended to sit in front of Moonraker, not beside it as an equal-trust client. Treat it as the policy boundary for shared environments. The backend exposes the UI, proxies printer operations, enforces per-group capability checks, and stores local account and audit state in SQLite.
 
-## 📄 License & Intellectual Property
+The repository currently includes institution-specific branding assets and content defaults. Review those before any public or third-party deployment.
 
-This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. See the `LICENSE` file for the full license terms.
+## Documentation
 
-### Special Attributions & Notices:
-- **OrcaSlicer Cover Image**: The `Creality Ender-3 Pro_cover.png` used at the beginning of the instructions is sourced from the **OrcaSlicer** project (licensed under GPL-3.0).
-- **Vibecoding**: Everything in this project has been vibecoded with **Gemini 3.5 flash in Antigravity**.
+Operational documentation belongs in the companion GitHub wiki for this project. The wiki should cover installation, configuration, permissions, and legal/provenance notes rather than duplicating this README.
 
-Logos, branding identities, and fonts (e.g. `UT Sans`, `UT Symbols`) belong to their respective copyright holders (Transilvania University of Brașov, Faculty of Electrical Engineering and Computer Science - IESC) and are referenced under fair usage for internal deployment. Do not vendor or distribute licensed fonts or proprietary branding images without permission.
+## License
+
+The software in this repository is free software licensed under the GNU Affero General Public License, version 3 or later. See [LICENSE](/home/therealone/git/klipper-mainpage/LICENSE) for the canonical license text.
+
+Not every bundled asset is necessarily covered by the same terms. Branding assets, fonts, and third-party media have their own provenance and usage constraints. See [ATTRIBUTIONS.md](/home/therealone/git/klipper-mainpage/ATTRIBUTIONS.md) for details.
+
+## Provenance
+
+This repository was developed with AI-assisted, vibe-coded workflows. That is a statement about how it was produced, not a substitute for engineering review. Treat it like any other system that controls real hardware: read the code, review the policies, and test the deployment you intend to trust.

@@ -18,9 +18,10 @@ import {
 } from "lucide-react";
 import GCodeViewerEngine from "@sindarius/gcodeviewer";
 import type { PortalConfig, PrinterState } from "../usePrinterState";
+import { translations } from "../translations";
 
 interface GcodeViewerProps {
-  lang: "ro" | "en";
+  lang: "ro" | "en" | "pl";
   theme: "light" | "dark";
   fileName: string | null;
   printerState: PrinterState | null;
@@ -212,11 +213,13 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
   fileName,
   printerState,
 }) => {
+  const t = translations[lang];
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ViewerInstance | null>(null);
   const viewerReadyRef = useRef(false);
   const activeLoadId = useRef(0);
   const langRef = useRef(lang);
+  const tRef = useRef(t);
   const configureViewerRef = useRef<((viewer: ViewerInstance) => void) | null>(
     null,
   );
@@ -339,11 +342,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       if (!isViewerReady(viewer)) {
         pendingLocalFileRef.current = { content, name };
         setStatus("loading");
-        setMessage(
-          lang === "ro"
-            ? "Se pregătește vizualizatorul..."
-            : "Preparing the 3D viewer...",
-        );
+        setMessage(tRef.current.gvPreparingViewer);
         return;
       }
 
@@ -351,7 +350,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
       const parsedBounds = parseGcodeBounds(content);
       setLocalFileBounds(parsedBounds);
       setStatus("loading");
-      setMessage(lang === "ro" ? "Se încarcă fișierul..." : "Loading file...");
+      setMessage(tRef.current.gvLoadingFile);
 
       try {
         configureViewer(viewer, parsedBounds);
@@ -380,31 +379,21 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         if (activeLoadId.current !== loadId) return;
         console.error("G-code viewer load failed", error);
         setStatus("error");
-        setMessage(
-          lang === "ro"
-            ? "Fișierul G-code nu a putut fi randat."
-            : "The G-code file could not be rendered.",
-        );
+        setMessage(tRef.current.gvLoadError);
       }
     },
-    [configureViewer, hdRendering, lang, quality],
+    [configureViewer, hdRendering, quality],
   );
 
   const loadCurrentFile = useCallback(async () => {
     if (!fileName) {
       setStatus("idle");
-      setMessage(
-        lang === "ro"
-          ? "Nu există fișier curent. Încarcă un fișier local sau pornește o printare."
-          : "No current file. Load a local file or start a print.",
-      );
+      setMessage(tRef.current.gvNoCurrentFile);
       return;
     }
 
     setStatus("loading");
-    setMessage(
-      lang === "ro" ? "Se descarcă G-code-ul..." : "Downloading G-code...",
-    );
+    setMessage(tRef.current.gvDownloadingGcode);
     const encodedPath = normalizedName(fileName)
       .split("/")
       .map(encodeURIComponent)
@@ -415,10 +404,11 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     }
     const content = await response.text();
     await loadContent(content, fileName);
-  }, [fileName, lang, loadContent]);
+  }, [fileName, loadContent]);
 
   useEffect(() => {
     langRef.current = lang;
+    tRef.current = translations[lang];
   }, [lang]);
 
   useEffect(() => {
@@ -482,7 +472,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
             if (percent <= 99) {
               setStatus("loading");
               setMessage(
-                `${langRef.current === "ro" ? "Se randează" : "Rendering"}... ${percent}%`,
+                `${tRef.current.gvRendering}... ${percent}%`,
               );
             }
           };
@@ -516,11 +506,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         if (disposed) return;
         console.error("G-code viewer init failed", error);
         setStatus("error");
-        setMessage(
-          langRef.current === "ro"
-            ? "Vizualizatorul 3D nu a putut fi inițializat."
-            : "The 3D viewer could not be initialized.",
-        );
+        setMessage(tRef.current.gvInitError);
       }
     };
 
@@ -584,9 +570,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
         if (activeLoadId.current !== loadId) return;
         console.error("G-code viewer reload failed", error);
         setStatus("error");
-        setMessage(
-          langRef.current === "ro" ? "Reîncărcarea a eșuat." : "Reload failed.",
-        );
+        setMessage(tRef.current.gvReloadError);
       });
   }, [hdRendering, loadedFileName, quality, viewerReady]);
 
@@ -701,7 +685,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     } catch (error) {
       console.error("G-code reload failed", error);
       setStatus("error");
-      setMessage(lang === "ro" ? "Reîncărcarea a eșuat." : "Reload failed.");
+      setMessage(t.gvReloadError);
     }
   };
 
@@ -709,21 +693,17 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
     <div className="page-content visualizer-page">
       <div className="visualizer-page-header">
         <div>
-          <h2>{lang === "ro" ? "Vizualizare 3D G-Code" : "3D GCode view"}</h2>
+          <h2>{t.gvTitle}</h2>
           <p>
             {loadedFileName
-              ? lang === "ro"
-                ? `Fișier: ${loadedFileName}`
-                : `File: ${loadedFileName}`
-              : lang === "ro"
-                ? "Niciun fișier încărcat"
-                : "No file loaded"}
+              ? `${t.gvFilePrefix} ${loadedFileName}`
+              : t.gvNoFile}
           </p>
         </div>
         <div className="visualizer-toolbar">
           <label className="btn">
             <FileUp size={16} />
-            <span>{lang === "ro" ? "Local" : "Local"}</span>
+            <span>{t.gvLocal}</span>
             <input
               type="file"
               accept=".gcode,.gco,.g"
@@ -737,7 +717,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
             disabled={status === "loading" || !viewerReady}
           >
             <RefreshCw size={16} />
-            <span>{lang === "ro" ? "Reîncarcă" : "Reload"}</span>
+            <span>{t.gvReload}</span>
           </button>
           <button
             className="btn"
@@ -749,7 +729,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
             disabled={!viewerReady}
           >
             <RotateCw size={16} />
-            <span>{lang === "ro" ? "Cameră" : "Camera"}</span>
+            <span>{t.gvCamera}</span>
           </button>
         </div>
       </div>
@@ -768,37 +748,33 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
               onClick={() => setTracking((value) => !value)}
             >
               <Crosshair size={14} />
-              <span>{lang === "ro" ? "Urmărire" : "Tracking"}</span>
+              <span>{t.gvTracking}</span>
             </button>
             <button
               className={`btn-control ${showTravels ? "active" : ""}`}
               onClick={() => setShowTravels((value) => !value)}
             >
               {showTravels ? <Eye size={14} /> : <EyeOff size={14} />}
-              <span>{lang === "ro" ? "Travel" : "Travel"}</span>
+              <span>{t.gvTravel}</span>
             </button>
             <button
               className={`btn-control ${showToolhead ? "active" : ""}`}
               onClick={() => setShowToolhead((value) => !value)}
             >
               {showToolhead ? <Eye size={14} /> : <EyeOff size={14} />}
-              <span>{lang === "ro" ? "Duză" : "Toolhead"}</span>
+              <span>{t.gvToolhead}</span>
             </button>
             <button
               className={`btn-control ${hdRendering ? "active" : ""}`}
               onClick={() => setHdRendering((value) => !value)}
-              title={
-                lang === "ro"
-                  ? "Extrudare de înaltă calitate (reîncarcă fișierul)"
-                  : "High quality extrusion (reloads the file)"
-              }
+              title={t.gvHdTitle}
             >
               <Sparkles size={14} />
               <span>HD</span>
             </button>
           </div>
           <label className="control-slider-container">
-            <span>{lang === "ro" ? "Calitate" : "Quality"}</span>
+            <span>{t.gvQuality}</span>
             <input
               type="range"
               min="1"
@@ -819,15 +795,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
                 }
                 setScrubPlaying((value) => !value);
               }}
-              title={
-                scrubPlaying
-                  ? lang === "ro"
-                    ? "Pauză"
-                    : "Pause"
-                  : lang === "ro"
-                    ? "Redă printarea"
-                    : "Play print"
-              }
+              title={scrubPlaying ? t.gvPause : t.gvPlayPrint}
             >
               {scrubPlaying ? <Pause size={14} /> : <Play size={14} />}
             </button>
@@ -857,7 +825,7 @@ export const GcodeViewer: React.FC<GcodeViewerProps> = ({
                           : 2,
                 )
               }
-              title={lang === "ro" ? "Viteză de redare" : "Playback speed"}
+              title={t.gvPlaybackSpeed}
             >
               <span>{scrubSpeed}x</span>
             </button>

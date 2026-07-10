@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import type { PortalConfig } from "../usePrinterState";
+import { translations } from "../translations";
+import { addIdsToHeaders } from "../lib/contentHeadings";
 
 interface RulesProps {
   config: PortalConfig | null;
-  lang: "ro" | "en";
+  lang: "ro" | "en" | "pl";
   scrollTarget?: string;
 }
 
@@ -12,9 +14,11 @@ export const Rules: React.FC<RulesProps> = ({
   lang,
   scrollTarget,
 }) => {
+  const t = translations[lang];
   const [rulesHtml, setRulesHtml] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,9 +43,7 @@ export const Rules: React.FC<RulesProps> = ({
         console.error("Error fetching rules:", err);
         setRulesHtml("");
         setError(
-          lang === "ro"
-            ? "Regulamentul nu poate fi încărcat. Verifică dacă backend-ul rulează."
-            : "Rules could not be loaded. Check that the backend is running.",
+          t.rulesLoadError,
         );
         setLoading(false);
       });
@@ -60,43 +62,25 @@ export const Rules: React.FC<RulesProps> = ({
     }
   }, [loading, scrollTarget, rulesHtml]);
 
-  const slugify = (text: string) => {
-    return text
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/[\s_]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  };
-
-  const addIdsToHeaders = (html: string) => {
-    let processed = html.replace(
-      /<h2([^>]*)>([\s\S]*?)<\/h2>/gi,
-      (_match, attrs, content) => {
-        const text = content.replace(/<[^>]*>/g, "");
-        const id = slugify(text);
-        return `<h2 id="${id}"${attrs}>${content}</h2>`;
-      },
-    );
-    processed = processed.replace(
-      /<h3([^>]*)>([\s\S]*?)<\/h3>/gi,
-      (_match, attrs, content) => {
-        const text = content.replace(/<[^>]*>/g, "");
-        const id = slugify(text);
-        return `<h3 id="${id}"${attrs}>${content}</h3>`;
-      },
-    );
-    return processed;
+  const handleHeadingClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = (event.target as HTMLElement).closest("h1, h2, h3, h4");
+    if (!target || !target.id) return;
+    const url = `${window.location.origin}${window.location.pathname}#${target.id}`;
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => {
+        setLinkCopied(true);
+        window.setTimeout(() => setLinkCopied(false), 1500);
+      })
+      .catch(() => {});
   };
 
   // Format alert blocks in HTML safely
   const formatHtml = (html: string) => {
-    const warningLabel = lang === "ro" ? "Avertisment" : "Warning";
-    const importantLabel = lang === "ro" ? "Important" : "Important";
-    const noteLabel = lang === "ro" ? "Notă" : "Note";
-    const tipLabel = lang === "ro" ? "Sfat" : "Tip";
+    const warningLabel = t.mdWarning;
+    const importantLabel = t.mdImportant;
+    const noteLabel = t.mdNote;
+    const tipLabel = t.mdTip;
 
     const formatted = html
       .replace(
@@ -125,14 +109,19 @@ export const Rules: React.FC<RulesProps> = ({
       <div className="markdown-container">
         {loading ? (
           <p>
-            {lang === "ro" ? "Se încarcă regulamentul..." : "Loading rules..."}
+            {t.rulesLoading}
           </p>
         ) : error ? (
           <div className="content-error-state">{error}</div>
         ) : (
-          <div dangerouslySetInnerHTML={{ __html: formatHtml(rulesHtml) }} />
+          <div
+            className="markdown-headings-copyable"
+            onClick={handleHeadingClick}
+            dangerouslySetInnerHTML={{ __html: formatHtml(rulesHtml) }}
+          />
         )}
       </div>
+      {linkCopied && <div className="heading-copy-toast">{t.headingLinkCopied}</div>}
     </div>
   );
 };

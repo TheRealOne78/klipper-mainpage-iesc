@@ -1,308 +1,64 @@
+// i18n is NOT hardcoded here — translations live in JSON locale files under
+// ./locales/<lang>/<area>.json and are merged into one flat object per language
+// so usage stays `t.someKey`. To add a new language: create ./locales/<code>/
+// with the same area files, then register it in `translations` and `LANGUAGES`.
+
+import enCommon from "./locales/en/common.json";
+import enDashboard from "./locales/en/dashboard.json";
+import enMachine from "./locales/en/machine.json";
+import enHistory from "./locales/en/history.json";
+import enAdmin from "./locales/en/admin.json";
+import enPages from "./locales/en/pages.json";
+
+import roCommon from "./locales/ro/common.json";
+import roDashboard from "./locales/ro/dashboard.json";
+import roMachine from "./locales/ro/machine.json";
+import roHistory from "./locales/ro/history.json";
+import roAdmin from "./locales/ro/admin.json";
+import roPages from "./locales/ro/pages.json";
+
+import plCommon from "./locales/pl/common.json";
+import plDashboard from "./locales/pl/dashboard.json";
+import plMachine from "./locales/pl/machine.json";
+import plHistory from "./locales/pl/history.json";
+import plAdmin from "./locales/pl/admin.json";
+import plPages from "./locales/pl/pages.json";
+
+export type Lang = "ro" | "en" | "pl";
+
+/** Registered languages, in the order they appear in the switcher. */
+export const LANGUAGES: { code: Lang; label: string }[] = [
+  { code: "ro", label: "Română" },
+  { code: "en", label: "English" },
+  { code: "pl", label: "Polski" },
+];
+
 export const translations = {
   ro: {
-    appTitle: "Ender 3 Pro – Anexă NII3",
-    university: "Universitatea Transilvania din Brașov",
-    faculty: "Facultatea de Inginerie Electrică și Știința Calculatoarelor",
-    home: "Acasă",
-    rules: "Regulament",
-    troubleshooting: "Depanare",
-    dashboard: "Dashboard",
-    settings: "Setări",
-    themeToggle: "Schimbă tema",
-    footerText: "Toate drepturile rezervate.",
-    authTitle: "Autentificare Portal",
-    authSubtitle: "Accesul este restricționat. Introdu parola de oaspete.",
-    passwordLabel: "Parolă",
-    passwordPlaceholder: "Parola...",
-    loginButton: "Conectare",
-    cancelButton: "Anulează",
-    authFailed: "Autentificare eșuată",
-    networkError: "Eroare de rețea la autentificare",
-    errorTitle: "Eroare",
-    successTitle: "Succes",
-    printerState: "Stare Imprimantă",
-    offlineMessage:
-      "Imprimanta 3D este oprită sau deconectată. Conectează imprimanta pentru a trimite comenzi.",
-    statusStandby: "în așteptare",
-    statusOffline: "deconectat",
-    statusConnecting: "se conectează",
-    statusPrinting: "printează",
-    statusPaused: "în pauză",
-    statusError: "eroare",
-    currentFile: "Fișier curent",
-    progress: "Progres",
-    elapsedTime: "Timp scurs",
-    timeLeft: "Timp rămas",
-    estimated: "estimat",
-    btnResume: "Reluare",
-    btnCancel: "Anulează",
-    btnStartPrint: "Pornește Printare",
-    tempPreheat: "Temperaturi",
-    preheatPresets: "Preîncălzire Presets",
-    cooldown: "Răcire",
-    uploadTitle: "Încărcare G-code",
-    uploadPlaceholder: "Apasă pentru a alege fișierul",
-    uploadLimits: "Sunt permise doar fișiere .gcode și .gco, max. {max}MB",
-    uploading: "Se încarcă fișierul...",
-    jogTitle: "Mișcare Imprimantă (Jog)",
-    macrosTitle: "Comenzi rapide (Macrouri)",
-    macrosNone: "Nu există macrouri permise pentru oaspeți.",
-    speedFactorTitle: "Multiplicator Viteză (Speed Factor)",
-    uploadSuccess: 'Fișierul "{name}" a fost încărcat cu succes!',
-    uploadFailed: "A apărut o eroare la încărcare.",
-    printStarted: "Printarea a pornit cu succes!",
-    printStartFailed: "Nu s-a putut porni printarea.",
-    moveFailed: "Mișcarea a fost blocată.",
-    homeFailed: "Homing-ul a fost blocat.",
-    preheatFailed: "Preîncălzirea a fost blocată.",
-    macroFailed: "Rularea macroului a fost blocată.",
-    speedFailed: "Modificarea vitezei a fost blocată.",
-    rulesAttention: "ATENȚIE: Reguli Imprimantă 3D",
-    loadingRules: "Se încarcă regulamentul...",
-    loadingTrouble: "Se încarcă ghidul de depanare...",
-
-    // Custom elements
-    emergencyStop: "OPRIRE DE URGENȚĂ",
-    emergencyStopConfirm: "Sigur vrei să trimiți comanda de OPRIRE DE URGENȚĂ?",
-    emergencyStopSuccess: "Comanda de oprire de urgență a fost trimisă!",
-    emergencyStopFailed: "Trimiterea comenzii de oprire de urgență a eșuat.",
-    sidebarToggle: "Meniu",
-    languageSelect: "Selectare limbă",
-    bigRedWarning:
-      "ATENȚIE: Citește regulile înainte de a printa și nu fi iresponsabil! Orice defecțiune cauzată de utilizarea necorespunzătoare va fi suportată de utilizator.",
-
-    // Status / heater states
-    statusBusy: "ocupat",
-    heaterOff: "oprit",
-    heaterHolding: "menține",
-    heaterHeating: "încălzește",
-    heaterCooling: "răcește",
-
-    // Generic UI
-    expand: "Extinde",
-    collapse: "Restrânge",
-    slicerRemaining: "Rămas (slicer)",
-
-    // Toolhead panel
-    toolhead: "Cap de imprimare",
-    actions: "Acțiuni",
-    unlockMotors: "Deblochează motoarele",
-    homeAll: "Acasă tot",
-    all: "TOT",
-    position: "Poziție",
-    positionAbsolute: "absolută",
-    positionRelative: "relativă",
-    zOffset: "Compensare Z",
-    toolheadSettings: "Setări cap de imprimare",
-    positionOutput: "Afișare poziție",
-    coordinateFields: "Câmpuri coordonate",
-    controlButtons: "Butoane de control",
-    zOffsetSetting: "Compensare Z",
-    speedFactorSetting: "Multiplicator viteză",
-
-    // Temperatures panel
-    temperatureSettings: "Setări temperatură",
-    showChart: "Arată graficul",
-    autoscaleChart: "Scalare automată",
-    hideTargets: "Ascunde țintele",
-    preset: "Presetare",
-    tableName: "Nume",
-    tableState: "Stare",
-    tableCurrent: "Curent",
-    tableTarget: "Țintă",
-    extruder: "Extruder",
-    heaterBed: "Pat încălzit",
-    chartExtruderTarget: "Extruder (țintă)",
-    chartBedTarget: "Pat (țintă)",
-
-    // Console
-    console: "Consolă",
-    noConsoleMessages: "Niciun mesaj în consolă",
-
-    // Macros
-    macroParameters: "Parametri macro",
-    send: "Trimite",
-
-    // Heightmap
-    hmMeshProfile: "Profil mesh",
-    hmMax: "Maxim",
-    hmMin: "Minim",
-    hmRange: "Interval",
-    hmCalibrate: "Calibrează Pat",
-    hmCalibrating: "Calibrare...",
-    hmClear: "Șterge mesh",
-    hmProbed: "Sondat",
-    hmMesh: "Plasă",
-    hmFlat: "Plat",
-    hmWireframe: "Cadru",
-    hmScaleGradient: "Scalează gradientul",
-    hmScaleZMax: "Scală Z max",
-    hmColorScheme: "Schemă de culori",
-    hmOrientation: "Orientare",
-    hmOrientRightFront: "Dreapta-față",
-    hmOrientLeftFront: "Stânga-față",
-    hmOrientFront: "Față",
-    hmOrientTop: "De sus",
-    hmSchemeGrayscale: "Tonuri de gri",
-    hmNoMesh: "Nu există mesh activ",
-    hmNoMeshDesc:
-      "Rulează calibrarea patului sau activează un profil bed mesh în Klipper.",
-
-    // Speed factor
-    speedLabel: "Viteză:",
-    speedReset: "Resetare (100%)",
+    ...roCommon,
+    ...roDashboard,
+    ...roMachine,
+    ...roHistory,
+    ...roAdmin,
+    ...roPages,
   },
   en: {
-    appTitle: "Ender 3 Pro – Annex NII3",
-    university: "Transilvania University of Brașov",
-    faculty: "Faculty of Electrical Engineering and Computer Science",
-    home: "Home",
-    rules: "Rules",
-    troubleshooting: "Troubleshooting",
-    dashboard: "Dashboard",
-    settings: "Settings",
-    themeToggle: "Toggle theme",
-    footerText: "All rights reserved.",
-    authTitle: "Portal Login",
-    authSubtitle: "Access is restricted. Enter the guest password.",
-    passwordLabel: "Password",
-    passwordPlaceholder: "Password...",
-    loginButton: "Login",
-    cancelButton: "Cancel",
-    authFailed: "Authentication failed",
-    networkError: "Network error during authentication",
-    errorTitle: "Error",
-    successTitle: "Success",
-    printerState: "Printer State",
-    offlineMessage:
-      "The 3D printer is offline or disconnected. Connect the printer to send commands.",
-    statusStandby: "standby",
-    statusOffline: "disconnected",
-    statusConnecting: "connecting",
-    statusPrinting: "printing",
-    statusPaused: "paused",
-    statusError: "error",
-    currentFile: "Current file",
-    progress: "Progress",
-    elapsedTime: "Elapsed time",
-    timeLeft: "Time left",
-    estimated: "estimated",
-    btnResume: "Resume",
-    btnCancel: "Cancel",
-    btnStartPrint: "Start Printing",
-    tempPreheat: "Temperatures",
-    preheatPresets: "Preheat Presets",
-    cooldown: "Cooldown",
-    uploadTitle: "Upload G-code",
-    uploadPlaceholder: "Click to choose file",
-    uploadLimits: "Only .gcode and .gco files are allowed, max. {max}MB",
-    uploading: "Uploading file...",
-    jogTitle: "Printer Movement (Jog)",
-    macrosTitle: "Quick Commands (Macros)",
-    macrosNone: "No macros allowed for guests.",
-    speedFactorTitle: "Speed Factor",
-    uploadSuccess: 'File "{name}" uploaded successfully!',
-    uploadFailed: "An error occurred during upload.",
-    printStarted: "Printing started successfully!",
-    printStartFailed: "Could not start printing.",
-    moveFailed: "Movement was blocked.",
-    homeFailed: "Homing was blocked.",
-    preheatFailed: "Preheating was blocked.",
-    macroFailed: "Running macro was blocked.",
-    speedFailed: "Modifying speed factor was blocked.",
-    rulesAttention: "ATTENTION: 3D Printer Rules",
-    loadingRules: "Loading rules...",
-    loadingTrouble: "Loading troubleshooting guide...",
-
-    // Custom elements
-    emergencyStop: "EMERGENCY STOP",
-    emergencyStopConfirm: "Are you sure you want to trigger EMERGENCY STOP?",
-    emergencyStopSuccess: "Emergency stop command sent!",
-    emergencyStopFailed: "Failed to send emergency stop command.",
-    sidebarToggle: "Menu",
-    languageSelect: "Select language",
-    bigRedWarning:
-      "ATTENTION: Read the rules before printing and do not be irresponsible! Any damage caused by misuse will be borne by the user.",
-
-    // Status / heater states
-    statusBusy: "busy",
-    heaterOff: "off",
-    heaterHolding: "holding",
-    heaterHeating: "heating",
-    heaterCooling: "cooling",
-
-    // Generic UI
-    expand: "Expand",
-    collapse: "Collapse",
-    slicerRemaining: "Slicer remaining",
-
-    // Toolhead panel
-    toolhead: "Toolhead",
-    actions: "Actions",
-    unlockMotors: "Unlock Motors",
-    homeAll: "Home All",
-    all: "ALL",
-    position: "Position",
-    positionAbsolute: "absolute",
-    positionRelative: "relative",
-    zOffset: "Z-Offset",
-    toolheadSettings: "Toolhead settings",
-    positionOutput: "Position output",
-    coordinateFields: "Coordinate fields",
-    controlButtons: "Control buttons",
-    zOffsetSetting: "Z offset",
-    speedFactorSetting: "Speed factor",
-
-    // Temperatures panel
-    temperatureSettings: "Temperature settings",
-    showChart: "Show Chart",
-    autoscaleChart: "Autoscale Chart",
-    hideTargets: "Hide Targets",
-    preset: "Preset",
-    tableName: "Name",
-    tableState: "State",
-    tableCurrent: "Current",
-    tableTarget: "Target",
-    extruder: "Extruder",
-    heaterBed: "Heater Bed",
-    chartExtruderTarget: "Extruder Target",
-    chartBedTarget: "Bed Target",
-
-    // Console
-    console: "Console",
-    noConsoleMessages: "No console messages",
-
-    // Macros
-    macroParameters: "Macro parameters",
-    send: "Send",
-
-    // Heightmap
-    hmMeshProfile: "Mesh profile",
-    hmMax: "Max",
-    hmMin: "Min",
-    hmRange: "Range",
-    hmCalibrate: "Calibrate Bed",
-    hmCalibrating: "Calibrating...",
-    hmClear: "Clear mesh",
-    hmProbed: "Probed",
-    hmMesh: "Mesh",
-    hmFlat: "Flat",
-    hmWireframe: "Wireframe",
-    hmScaleGradient: "Scale Gradient",
-    hmScaleZMax: "Scale Z Max",
-    hmColorScheme: "Color Scheme",
-    hmOrientation: "Orientation",
-    hmOrientRightFront: "Right Front",
-    hmOrientLeftFront: "Left Front",
-    hmOrientFront: "Front",
-    hmOrientTop: "Top",
-    hmSchemeGrayscale: "Grayscale",
-    hmNoMesh: "No active mesh",
-    hmNoMeshDesc:
-      "Run bed calibration or activate a Klipper bed mesh profile.",
-
-    // Speed factor
-    speedLabel: "Speed:",
-    speedReset: "Reset (100%)",
+    ...enCommon,
+    ...enDashboard,
+    ...enMachine,
+    ...enHistory,
+    ...enAdmin,
+    ...enPages,
+  },
+  pl: {
+    ...plCommon,
+    ...plDashboard,
+    ...plMachine,
+    ...plHistory,
+    ...plAdmin,
+    ...plPages,
   },
 };
+
+/** Flat translation map for a single language, i.e. `translations[lang]`. */
+export type Translations = (typeof translations)["en"];

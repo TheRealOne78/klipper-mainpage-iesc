@@ -1,11 +1,16 @@
-# 3D Printing Rules (Ender 3 Pro)
+# 3D Printer Usage Rules - Ender 3 Pro
 
 > [!WARNING]
-> Read these rules before printing! Incorrect usage can damage the 3D printer. Any damage caused by negligence will be the user's responsibility.
+> Read the rules before printing! Incorrect use can damage the printer. Any damage caused by negligence will be the user's responsibility.
 
-## General Safety & Usage Rules
-1. **Manual Bed Leveling:** Since this printer does not have an auto-bed leveling sensor (BLTouch), you must manually level the bed using the 4 adjustment wheels and the "paper test" before starting. A nozzle too close will scratch and permanently damage the C-Mag magnetic sheet.
-2. **First Layers Supervision:** You must supervise the first 3 layers of your print. 90% of failures (spaghetti, warping) happen within the first 10 minutes.
-3. **Safe Temperatures:** Do not exceed **240°C** for the hotend (the internal PTFE Bowden tube degrades and releases toxic fumes at higher temps) and **80°C** for the heated bed.
-4. **Part Removal:** Wait for the bed to cool below **35°C** before removing the flexible magnetic sheet to pop off your print. Do not use sharp metal scrapers directly on the textured magnetic surface!
-5. **Bed Cleaning:** Wipe the magnetic bed with Isopropyl Alcohol (IPA) only when it is **cold**. Cleaning a hot bed can ruin the surface finish and adhesion.
+- The 3D printer may only be operated inside the NII3 annex, not remotely
+- Only the guest web interface may be used
+- Changing the printer configuration is prohibited
+- Do not exceed **240°C** at the hotend
+- Do not leave the printer unattended while the **heating elements are active** but NOT printing. Ignition risk!
+- Do not leave the printer unattended while printing the first 3 layers. 90% of failures happen within the first 10 minutes
+- After the part has finished printing, unfold the magnetic bed and wait for it to cool completely before removing the printed object from the bed. Do not use the metal scraper directly on the textured surface!
+- Do NOT use superglue or other inadequate adhesives on the printing sheet. The use of superglue on the sheet guarantees damaging of the printing sheet
+- After using the printer, do not forget to turn off its power
+
+Do not start using the printer before reading the [basic guide](/instructions#essential)

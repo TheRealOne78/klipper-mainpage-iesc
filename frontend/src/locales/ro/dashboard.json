@@ -1,0 +1,17 @@
+{
+  "dashSpeed": "Viteză",
+  "dashFlow": "Flux",
+  "dashFilament": "Filament",
+  "dashLayer": "Strat",
+  "dashEstimate": "Estimare",
+  "dashSlicer": "Slicer",
+  "dashTotal": "Total",
+  "dashEta": "ETA",
+  "dashIdle": "Inactiv",
+  "dashIdleHint": "Nicio printare în desfășurare",
+  "dashStatusTab": "Progres",
+  "dashPause": "Pauză",
+  "dashLongestJob": "Cea mai lungă lucrare",
+  "dashLongestPrint": "Cel mai lung print",
+  "dashQueuedMore": "în coadă"
+}

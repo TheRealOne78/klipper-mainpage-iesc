@@ -5,12 +5,18 @@ import "echarts-gl";
 import type { ECharts } from "echarts";
 import type { PrinterState } from "../usePrinterState";
 import { translations } from "../translations";
+import { useStoredBool } from "../hooks/useStoredBool";
 
 interface HeightmapProps {
-  lang: "ro" | "en";
+  lang: "ro" | "en" | "pl";
   printerState: PrinterState | null;
   sendGcode: (gcode: string) => Promise<boolean>;
   config: any;
+  /** `null` = no session at all. `sendGcode` goes through the generic
+   * macro-run endpoint, so whether a specific action is actually usable
+   * depends on the caller's `run_macros` permission and whether that G-code
+   * is in their `allowed_macros` list — same gate the backend enforces. */
+  role: string | null;
 }
 
 const fallbackMin = [0, 0, 0];
@@ -136,8 +142,18 @@ export const Heightmap: React.FC<HeightmapProps> = ({
   lang,
   printerState,
   sendGcode,
+  config,
+  role,
 }) => {
   const t = translations[lang];
+  const isAdmin = role === "admin";
+  const allowedMacros: string[] = Array.isArray(config?.allowed_macros)
+    ? config.allowed_macros
+    : [];
+  const canRunMacroName = (name: string): boolean =>
+    role !== null &&
+    Boolean(config?.permissions?.run_macros) &&
+    (isAdmin || allowedMacros.includes(name));
   const chartRef = useRef<HTMLDivElement | null>(null);
   const chartInstance = useRef<ECharts | null>(null);
 
@@ -146,20 +162,13 @@ export const Heightmap: React.FC<HeightmapProps> = ({
 
   // Persisted view toggles (localStorage, mirroring Mainsail's gui store).
   // Defaults: probed off; mesh/flat/wireframe/scale-gradient on.
-  const [showProbed, setShowProbed] = useState(
-    () => localStorage.getItem("hm.probed") === "true",
-  );
-  const [showMesh, setShowMesh] = useState(
-    () => localStorage.getItem("hm.mesh") !== "false",
-  );
-  const [showFlat, setShowFlat] = useState(
-    () => localStorage.getItem("hm.flat") !== "false",
-  );
-  const [wireframe, setWireframe] = useState(
-    () => localStorage.getItem("hm.wireframe") !== "false",
-  );
-  const [scaleGradient, setScaleGradient] = useState(
-    () => localStorage.getItem("hm.scaleGradient") !== "false",
+  const [showProbed, setShowProbed] = useStoredBool("hm.probed", false);
+  const [showMesh, setShowMesh] = useStoredBool("hm.mesh", true);
+  const [showFlat, setShowFlat] = useStoredBool("hm.flat", true);
+  const [wireframe, setWireframe] = useStoredBool("hm.wireframe", true);
+  const [scaleGradient, setScaleGradient] = useStoredBool(
+    "hm.scaleGradient",
+    true,
   );
   const [scaleZMax, setScaleZMax] = useState(() => {
     const v = localStorage.getItem("hm.scaleZMax");
@@ -197,7 +206,9 @@ export const Heightmap: React.FC<HeightmapProps> = ({
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Re-render the chart when the theme (data-theme attribute) changes.
+  // Re-render the chart when the theme (data-theme attribute — every
+  // concrete theme change, not just a light/dark mode flip, since the CSS
+  // variables read below change per-theme too) changes.
   const [themeTick, setThemeTick] = useState(0);
   useEffect(() => {
     const observer = new MutationObserver(() => setThemeTick((n) => n + 1));
@@ -307,7 +318,7 @@ export const Heightmap: React.FC<HeightmapProps> = ({
     const bgColor = cssVar("--surface-color", "#202020");
     const gridColor = cssVar("--border-color", "#313131");
     const isDark =
-      document.documentElement.getAttribute("data-theme") !== "light";
+      document.documentElement.getAttribute("data-theme-mode") !== "light";
 
     const rangeX = [
       printerState?.toolhead?.axis_minimum?.[0] ?? fallbackMin[0],
@@ -524,26 +535,32 @@ export const Heightmap: React.FC<HeightmapProps> = ({
     <div className="page-content visualizer-page">
       <div className="visualizer-page-header">
         <div>
-          <h2>Heightmap</h2>
+          <h2>{t.heightmap}</h2>
           <p>
             {t.hmMeshProfile}: {profileName}
           </p>
         </div>
+        {/* Each action is hidden (not just disabled) when the caller lacks
+            permission for that specific G-code/macro — matches the same
+            run_macros + allowed_macros gate the backend enforces on
+            /api/macro/run, so a button that's visible always actually works. */}
         <div className="visualizer-toolbar">
-          <button
-            className="btn"
-            onClick={() => runAction("home", "G28")}
-            disabled={isOffline || isPrinting || busyAction === "home"}
-            title={t.homeAll}
-          >
-            {busyAction === "home" ? (
-              <RotateCw size={16} className="spin" />
-            ) : (
-              <Home size={16} />
-            )}
-            <span>{t.homeAll}</span>
-          </button>
-          {isActive && (
+          {canRunMacroName("G28") && (
+            <button
+              className="btn"
+              onClick={() => runAction("home", "G28")}
+              disabled={isOffline || isPrinting || busyAction === "home"}
+              title={t.homeAll}
+            >
+              {busyAction === "home" ? (
+                <RotateCw size={16} className="spin" />
+              ) : (
+                <Home size={16} />
+              )}
+              <span>{t.homeAll}</span>
+            </button>
+          )}
+          {isActive && canRunMacroName("BED_MESH_CLEAR") && (
             <button
               className="btn"
               onClick={() => runAction("clear", "BED_MESH_CLEAR")}
@@ -558,21 +575,23 @@ export const Heightmap: React.FC<HeightmapProps> = ({
               <span>{t.hmClear}</span>
             </button>
           )}
-          <button
-            className="btn btn-primary"
-            onClick={() => runAction("calibrate", "BED_MESH_CALIBRATE")}
-            disabled={isOffline || isPrinting || busyAction === "calibrate"}
-            title={t.hmCalibrate}
-          >
-            {busyAction === "calibrate" ? (
-              <RotateCw size={16} className="spin" />
-            ) : (
-              <Compass size={16} />
-            )}
-            <span>
-              {busyAction === "calibrate" ? t.hmCalibrating : t.hmCalibrate}
-            </span>
-          </button>
+          {canRunMacroName("BED_MESH_CALIBRATE") && (
+            <button
+              className="btn btn-primary"
+              onClick={() => runAction("calibrate", "BED_MESH_CALIBRATE")}
+              disabled={isOffline || isPrinting || busyAction === "calibrate"}
+              title={t.hmCalibrate}
+            >
+              {busyAction === "calibrate" ? (
+                <RotateCw size={16} className="spin" />
+              ) : (
+                <Compass size={16} />
+              )}
+              <span>
+                {busyAction === "calibrate" ? t.hmCalibrating : t.hmCalibrate}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 

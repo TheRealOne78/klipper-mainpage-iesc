@@ -1,0 +1,17 @@
+{
+  "dashSpeed": "Prędkość",
+  "dashFlow": "Przepływ",
+  "dashFilament": "Filament",
+  "dashLayer": "Warstwa",
+  "dashEstimate": "Szacowany",
+  "dashSlicer": "Slicer",
+  "dashTotal": "Całkowity",
+  "dashEta": "ETA",
+  "dashIdle": "Bezczynny",
+  "dashIdleHint": "Brak trwającego druku",
+  "dashStatusTab": "Postęp",
+  "dashPause": "Pauza",
+  "dashLongestJob": "Najdłuższe zadanie",
+  "dashLongestPrint": "Najdłuższy druk",
+  "dashQueuedMore": "w kolejce"
+}

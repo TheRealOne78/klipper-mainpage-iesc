@@ -1,0 +1,17 @@
+{
+  "dashSpeed": "Speed",
+  "dashFlow": "Flow",
+  "dashFilament": "Filament",
+  "dashLayer": "Layer",
+  "dashEstimate": "Estimate",
+  "dashSlicer": "Slicer",
+  "dashTotal": "Total",
+  "dashEta": "ETA",
+  "dashIdle": "Idle",
+  "dashIdleHint": "No print in progress",
+  "dashStatusTab": "Progress",
+  "dashPause": "Pause",
+  "dashLongestJob": "Longest job",
+  "dashLongestPrint": "Longest print",
+  "dashQueuedMore": "queued"
+}

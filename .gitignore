@@ -3,6 +3,9 @@
 /frontend/dist
 /frontend/node_modules
 
+# Runtime-generated databases (audit log, local signup accounts)
+/backend/data
+
 # Logs
 *.log
 

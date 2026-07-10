@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { translations } from "../translations";
+import { addIdsToHeaders } from "../lib/contentHeadings";
 
 interface TroubleshootingProps {
-  lang: "ro" | "en";
+  lang: "ro" | "en" | "pl";
   scrollTarget?: string;
 }
 
@@ -13,6 +14,7 @@ export const Troubleshooting: React.FC<TroubleshootingProps> = ({
   const [troubleHtml, setTroubleHtml] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,9 +39,7 @@ export const Troubleshooting: React.FC<TroubleshootingProps> = ({
         console.error("Error fetching troubleshooting:", err);
         setTroubleHtml("");
         setError(
-          lang === "ro"
-            ? "Ghidul nu poate fi încărcat. Verifică dacă backend-ul rulează."
-            : "The guide could not be loaded. Check that the backend is running.",
+          translations[lang].tsLoadError,
         );
         setLoading(false);
       });
@@ -60,42 +60,24 @@ export const Troubleshooting: React.FC<TroubleshootingProps> = ({
 
   const t = translations[lang];
 
-  const slugify = (text: string) => {
-    return text
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/[\s_]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  };
-
-  const addIdsToHeaders = (html: string) => {
-    let processed = html.replace(
-      /<h2([^>]*)>([\s\S]*?)<\/h2>/gi,
-      (_match, attrs, content) => {
-        const text = content.replace(/<[^>]*>/g, "");
-        const id = slugify(text);
-        return `<h2 id="${id}"${attrs}>${content}</h2>`;
-      },
-    );
-    processed = processed.replace(
-      /<h3([^>]*)>([\s\S]*?)<\/h3>/gi,
-      (_match, attrs, content) => {
-        const text = content.replace(/<[^>]*>/g, "");
-        const id = slugify(text);
-        return `<h3 id="${id}"${attrs}>${content}</h3>`;
-      },
-    );
-    return processed;
+  const handleHeadingClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = (event.target as HTMLElement).closest("h1, h2, h3, h4");
+    if (!target || !target.id) return;
+    const url = `${window.location.origin}${window.location.pathname}#${target.id}`;
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => {
+        setLinkCopied(true);
+        window.setTimeout(() => setLinkCopied(false), 1500);
+      })
+      .catch(() => {});
   };
 
   const formatHtml = (html: string) => {
-    const warningLabel = lang === "ro" ? "Avertisment" : "Warning";
-    const importantLabel = lang === "ro" ? "Important" : "Important";
-    const noteLabel = lang === "ro" ? "Notă" : "Note";
-    const tipLabel = lang === "ro" ? "Sfat" : "Tip";
+    const warningLabel = t.mdWarning;
+    const importantLabel = t.mdImportant;
+    const noteLabel = t.mdNote;
+    const tipLabel = t.mdTip;
 
     const formatted = html
       .replace(
@@ -127,9 +109,14 @@ export const Troubleshooting: React.FC<TroubleshootingProps> = ({
         ) : error ? (
           <div className="content-error-state">{error}</div>
         ) : (
-          <div dangerouslySetInnerHTML={{ __html: formatHtml(troubleHtml) }} />
+          <div
+            className="markdown-headings-copyable"
+            onClick={handleHeadingClick}
+            dangerouslySetInnerHTML={{ __html: formatHtml(troubleHtml) }}
+          />
         )}
       </div>
+      {linkCopied && <div className="heading-copy-toast">{t.headingLinkCopied}</div>}
     </div>
   );
 };
